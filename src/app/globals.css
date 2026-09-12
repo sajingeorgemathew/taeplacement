@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+:root {
+  /* Soft neutral page background with white surfaces on top of it. */
+  --canvas: #f4f6f8;
+  --surface: #ffffff;
+  --surface-muted: #fafbfc;
+  --line: #e2e6ec;
+  --line-strong: #d3d9e1;
+
+  /* Dark, highly readable text. */
+  --ink: #121820;
+  --ink-muted: #5b6574;
+
+  /* One restrained blue accent. */
+  --brand: #1d4ed8;
+  --brand-strong: #1e40af;
+  --brand-soft: #eef3ff;
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+}
+
+html {
+  /* This application is light only. No dark theme. */
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* Keep keyboard focus obvious everywhere. */
+:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
