@@ -7,13 +7,19 @@ import { getSectionLabel } from "@/lib/navigation";
 
 type AppHeaderProps = {
   onOpenMenu: () => void;
+  staffName: string;
+  signOut: React.ReactNode;
 };
 
 /**
- * Top bar: mobile menu button, current section name, and a static TAE identifier.
- * There are no user accounts yet, so the identifier is not a profile menu.
+ * Top bar: mobile menu button, current section name, the signed in staff
+ * member, and Sign Out.
  */
-export default function AppHeader({ onOpenMenu }: AppHeaderProps) {
+export default function AppHeader({
+  onOpenMenu,
+  staffName,
+  signOut,
+}: AppHeaderProps) {
   const pathname = usePathname();
   const section = getSectionLabel(pathname);
 
@@ -34,12 +40,11 @@ export default function AppHeader({ onOpenMenu }: AppHeaderProps) {
           {section}
         </p>
 
-        <span
-          title="Toronto Academy of Education"
-          className="rounded-xl bg-brand-soft px-4 py-2 text-[15px] font-semibold tracking-wide text-brand-strong"
-        >
-          TAE
+        <span className="hidden max-w-[16rem] truncate text-[15px] text-ink-muted sm:block">
+          {staffName}
         </span>
+
+        {signOut}
       </div>
     </header>
   );
