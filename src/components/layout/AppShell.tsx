@@ -8,13 +8,17 @@ import AppSidebar from "./AppSidebar";
 
 type AppShellProps = {
   children: React.ReactNode;
+  /** Name of the signed in staff member, shown in the header. */
+  staffName: string;
+  /** Server rendered sign out control. */
+  signOut: React.ReactNode;
 };
 
 /**
  * Application shell: fixed sidebar on desktop, slide-out drawer on small screens,
  * a page header, and the main content area.
  */
-export default function AppShell({ children }: AppShellProps) {
+export default function AppShell({ children, staffName, signOut }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -69,8 +73,12 @@ export default function AppShell({ children }: AppShellProps) {
 
       {/* Main column */}
       <div className="lg:pl-72">
-        <AppHeader onOpenMenu={() => setMenuOpen(true)} />
-        <main className="mx-auto w-full max-w-5xl px-5 py-10 sm:px-8 sm:py-12">
+        <AppHeader
+          onOpenMenu={() => setMenuOpen(true)}
+          staffName={staffName}
+          signOut={signOut}
+        />
+        <main className="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8 sm:py-12">
           {children}
         </main>
       </div>

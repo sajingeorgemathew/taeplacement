@@ -16,6 +16,23 @@
   --brand: #1d4ed8;
   --brand-strong: #1e40af;
   --brand-soft: #eef3ff;
+
+  /* Operational status colours.
+     Blue informational, green ready/complete, soft coral needs attention. */
+  --info: #1d4ed8;
+  --info-ink: #1c3faa;
+  --info-soft: #eef3ff;
+  --info-line: #cddcff;
+
+  --ready: #0f7a52;
+  --ready-ink: #0b6141;
+  --ready-soft: #e8f7ef;
+  --ready-line: #bfe6d3;
+
+  --attention: #c0392f;
+  --attention-ink: #a32e25;
+  --attention-soft: #fdeeec;
+  --attention-line: #f7d2cd;
 }
 
 @theme inline {
@@ -31,6 +48,21 @@
   --color-brand: var(--brand);
   --color-brand-strong: var(--brand-strong);
   --color-brand-soft: var(--brand-soft);
+
+  --color-info: var(--info);
+  --color-info-ink: var(--info-ink);
+  --color-info-soft: var(--info-soft);
+  --color-info-line: var(--info-line);
+
+  --color-ready: var(--ready);
+  --color-ready-ink: var(--ready-ink);
+  --color-ready-soft: var(--ready-soft);
+  --color-ready-line: var(--ready-line);
+
+  --color-attention: var(--attention);
+  --color-attention-ink: var(--attention-ink);
+  --color-attention-soft: var(--attention-soft);
+  --color-attention-line: var(--attention-line);
 }
 
 html {
