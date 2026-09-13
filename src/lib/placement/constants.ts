@@ -95,8 +95,13 @@ export function isDocumentReady(status: PlacementDocumentStatus): boolean {
   return READY_DOCUMENT_STATUSES.includes(status);
 }
 
-/** Visual tone used by status pills and summary blocks. */
-export type Tone = "info" | "ready" | "attention" | "neutral";
+/**
+ * Visual tone used by status pills and summary blocks.
+ *
+ * warning is the amber middle ground: something that is not a problem and not
+ * finished either, such as a partner whose next intake is still ahead of us.
+ */
+export type Tone = "info" | "ready" | "attention" | "neutral" | "warning";
 
 export const PLACEMENT_STATUS_TONES: Record<PlacementStatus, Tone> = {
   needs_review: "attention",
@@ -185,3 +190,156 @@ export function isDocumentStatus(value: unknown): value is DocumentStatus {
     DOCUMENT_STATUSES.includes(value as DocumentStatus)
   );
 }
+
+/**
+ * Placement partner vocabulary.
+ *
+ * These match the CHECK constraint in
+ * supabase/migrations/0004_placement_partners.sql.
+ */
+export const RELATIONSHIP_STATUSES = [
+  "active",
+  "prospect",
+  "inactive",
+  "archived",
+] as const;
+
+export type RelationshipStatus = (typeof RELATIONSHIP_STATUSES)[number];
+
+export const RELATIONSHIP_STATUS_LABELS: Record<RelationshipStatus, string> = {
+  active: "Active",
+  prospect: "Prospect",
+  inactive: "Inactive",
+  archived: "Archived",
+};
+
+/** Green for a working relationship, blue for a lead, coral for gone quiet. */
+export const RELATIONSHIP_STATUS_TONES: Record<RelationshipStatus, Tone> = {
+  active: "ready",
+  prospect: "info",
+  inactive: "attention",
+  archived: "neutral",
+};
+
+export const DEFAULT_RELATIONSHIP_STATUS: RelationshipStatus = "active";
+
+export function isRelationshipStatus(
+  value: unknown,
+): value is RelationshipStatus {
+  return (
+    typeof value === "string" &&
+    RELATIONSHIP_STATUSES.includes(value as RelationshipStatus)
+  );
+}
+
+/**
+ * Partner placement availability.
+ *
+ * This is PARTNER level operational data: is this LTC accepting placements, and
+ * if not now, when is their next intake. It is not capacity, not a slot count,
+ * and not a student assignment. Those belong to PLACEMENT-04 and later.
+ *
+ * These match the CHECK constraint in
+ * supabase/migrations/0005_partner_board_refinements.sql.
+ */
+export const AVAILABILITY_STATUSES = [
+  "unknown",
+  "available_now",
+  "upcoming",
+  "not_available",
+] as const;
+
+export type AvailabilityStatus = (typeof AVAILABILITY_STATUSES)[number];
+
+export const AVAILABILITY_STATUS_LABELS: Record<AvailabilityStatus, string> = {
+  unknown: "Unknown",
+  available_now: "Available Now",
+  upcoming: "Upcoming Intake",
+  not_available: "Not Available",
+};
+
+/**
+ * Green when they are taking students, amber while an intake is still ahead,
+ * soft coral when they are closed, grey until somebody actually checks.
+ */
+export const AVAILABILITY_STATUS_TONES: Record<AvailabilityStatus, Tone> = {
+  unknown: "neutral",
+  available_now: "ready",
+  upcoming: "warning",
+  not_available: "attention",
+};
+
+/** A partner nobody has verified yet is Unknown, never "available". */
+export const DEFAULT_AVAILABILITY_STATUS: AvailabilityStatus = "unknown";
+
+export function isAvailabilityStatus(
+  value: unknown,
+): value is AvailabilityStatus {
+  return (
+    typeof value === "string" &&
+    AVAILABILITY_STATUSES.includes(value as AvailabilityStatus)
+  );
+}
+
+/**
+ * The controlled Area Board palette.
+ *
+ * Deliberately a fixed set of keys rather than a hex colour picker, so every
+ * area stays readable against dark text and the board never turns into a
+ * clash of arbitrary colours. These match the CHECK constraint on
+ * placement_areas.color_key in 0005. The rendered classes live in
+ * src/lib/partners/area-colors.ts.
+ */
+export const AREA_COLOR_KEYS = [
+  "slate",
+  "blue",
+  "green",
+  "amber",
+  "purple",
+  "coral",
+  "teal",
+  "indigo",
+] as const;
+
+export type AreaColorKey = (typeof AREA_COLOR_KEYS)[number];
+
+export const AREA_COLOR_LABELS: Record<AreaColorKey, string> = {
+  slate: "Slate",
+  blue: "Blue",
+  green: "Green",
+  amber: "Amber",
+  purple: "Purple",
+  coral: "Coral",
+  teal: "Teal",
+  indigo: "Indigo",
+};
+
+/** Also the neutral treatment of the Unassigned column. */
+export const DEFAULT_AREA_COLOR_KEY: AreaColorKey = "slate";
+
+export function isAreaColorKey(value: unknown): value is AreaColorKey {
+  return (
+    typeof value === "string" &&
+    AREA_COLOR_KEYS.includes(value as AreaColorKey)
+  );
+}
+
+/**
+ * Suggested partner types. Kept as free text in the database so an unexpected
+ * kind of placement organization never needs a migration.
+ */
+export const PARTNER_TYPE_OPTIONS = [
+  "Long Term Care",
+  "Retirement Residence",
+  "Hospital",
+  "Community / Home Care",
+  "Other",
+] as const;
+
+/**
+ * The Area Board's first column. Unassigned is NOT a placement_areas row: a
+ * partner is Unassigned when placement_partners.area_id IS NULL. Staff can
+ * never rename, reorder, or remove it.
+ */
+export const UNASSIGNED_AREA_ID = "unassigned";
+export const UNASSIGNED_AREA_LABEL = "Unassigned";

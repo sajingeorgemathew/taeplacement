@@ -33,6 +33,12 @@
   --attention-ink: #a32e25;
   --attention-soft: #fdeeec;
   --attention-line: #f7d2cd;
+
+  /* Amber: not a problem, not finished either. An upcoming partner intake. */
+  --warning: #b06a10;
+  --warning-ink: #8a520b;
+  --warning-soft: #fdf3e3;
+  --warning-line: #f2dcb4;
 }
 
 @theme inline {
@@ -63,6 +69,11 @@
   --color-attention-ink: var(--attention-ink);
   --color-attention-soft: var(--attention-soft);
   --color-attention-line: var(--attention-line);
+
+  --color-warning: var(--warning);
+  --color-warning-ink: var(--warning-ink);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-line: var(--warning-line);
 }
 
 html {

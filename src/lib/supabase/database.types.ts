@@ -1,5 +1,5 @@
 /**
- * Hand written database types for the PLACEMENT-01 and PLACEMENT-02 schema.
+ * Hand written database types for the PLACEMENT-01 to PLACEMENT-03 schema.
  *
  * Keep this file in step with supabase/migrations/. It is deliberately small:
  * only the tables this application actually reads and writes.
@@ -12,9 +12,12 @@
  */
 
 import type {
+  AreaColorKey,
+  AvailabilityStatus,
   DocumentStatus,
   PlacementDocumentStatus,
   PlacementStatus,
+  RelationshipStatus,
   StaffRole,
 } from "@/lib/placement/constants";
 
@@ -119,6 +122,72 @@ export type DocumentReadinessRow = {
   reviewed_count: number;
 };
 
+/**
+ * Configurable operational area. Admin only.
+ *
+ * Unassigned is deliberately absent: it is placement_partners.area_id IS NULL,
+ * never a row here.
+ */
+export type PlacementAreaRow = Timestamps & {
+  id: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  /** Controlled Area Board colour. The board never colours by array position. */
+  color_key: AreaColorKey;
+  is_active: boolean;
+};
+
+export type PlacementPartnerRow = Timestamps & {
+  id: string;
+  name: string;
+  partner_type: string | null;
+  main_phone: string | null;
+  website: string | null;
+  address_line: string | null;
+  city: string | null;
+  province: string | null;
+  postal_code: string | null;
+  /** null means Unassigned. */
+  area_id: string | null;
+  relationship_status: RelationshipStatus;
+  legacy_zoho_account_id: string | null;
+  legacy_owner_name: string | null;
+  last_contacted_at: string | null;
+  next_follow_up_at: string | null;
+  /**
+   * Operational placement availability. Partner level, not a student
+   * assignment and not capacity.
+   */
+  availability_status: AvailabilityStatus;
+  /** A DATE ("2026-10-20"), because an intake is a day, not a moment. */
+  next_intake_date: string | null;
+  availability_note: string | null;
+  availability_checked_at: string | null;
+  is_active: boolean;
+};
+
+/** One partner may have many contacts. Archived, never deleted. */
+export type PartnerContactRow = Timestamps & {
+  id: string;
+  partner_id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  job_title: string | null;
+  is_primary: boolean;
+  legacy_zoho_contact_id: string | null;
+  legacy_owner_name: string | null;
+  is_active: boolean;
+};
+
+export type PartnerNoteRow = Timestamps & {
+  id: string;
+  partner_id: string;
+  body: string;
+  created_by: string | null;
+};
+
 type TableShape<Row, Insert, Update> = {
   Row: Row;
   Insert: Insert;
@@ -161,6 +230,33 @@ export type StudentPackageInsert = Omit<
   Partial<Pick<StudentPackageRow, "id" | "uploaded_at">>;
 export type StudentPackageUpdate = Partial<StudentPackageInsert>;
 
+export type PlacementAreaInsert = Omit<
+  PlacementAreaRow,
+  "id" | "created_at" | "updated_at"
+> &
+  Partial<Pick<PlacementAreaRow, "id">>;
+export type PlacementAreaUpdate = Partial<PlacementAreaInsert>;
+
+export type PlacementPartnerInsert = Omit<
+  PlacementPartnerRow,
+  "id" | "created_at" | "updated_at"
+> &
+  Partial<Pick<PlacementPartnerRow, "id">>;
+export type PlacementPartnerUpdate = Partial<PlacementPartnerInsert>;
+
+export type PartnerContactInsert = Omit<
+  PartnerContactRow,
+  "id" | "created_at" | "updated_at"
+> &
+  Partial<Pick<PartnerContactRow, "id">>;
+export type PartnerContactUpdate = Partial<PartnerContactInsert>;
+
+export type PartnerNoteInsert = Omit<
+  PartnerNoteRow,
+  "id" | "created_at" | "updated_at"
+> &
+  Partial<Pick<PartnerNoteRow, "id">>;
+
 export type Database = {
   public: {
     Tables: {
@@ -182,6 +278,26 @@ export type Database = {
         StudentPackageRow,
         StudentPackageInsert,
         StudentPackageUpdate
+      >;
+      placement_areas: TableShape<
+        PlacementAreaRow,
+        PlacementAreaInsert,
+        PlacementAreaUpdate
+      >;
+      placement_partners: TableShape<
+        PlacementPartnerRow,
+        PlacementPartnerInsert,
+        PlacementPartnerUpdate
+      >;
+      placement_partner_contacts: TableShape<
+        PartnerContactRow,
+        PartnerContactInsert,
+        PartnerContactUpdate
+      >;
+      placement_partner_notes: TableShape<
+        PartnerNoteRow,
+        PartnerNoteInsert,
+        never
       >;
     };
     Views: {
