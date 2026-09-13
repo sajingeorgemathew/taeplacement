@@ -1,6 +1,7 @@
 import { StudentList } from "@/components/students/StudentRow";
 import StudentToolbar from "@/components/students/StudentToolbar";
 import BackLink from "@/components/ui/BackLink";
+import { listStudentReadiness } from "@/lib/documents/queries";
 import { studentCountLabel } from "@/lib/format";
 import { studentFiltersFrom, toolbarValuesFrom } from "@/lib/students/filters";
 import { listStudents } from "@/lib/students/queries";
@@ -19,10 +20,10 @@ export default async function ReturningStudentsPage(
   const searchParams = await props.searchParams;
   const values = toolbarValuesFrom(searchParams);
 
-  const students = await listStudents({
-    ...studentFiltersFrom(values),
-    returning: "yes",
-  });
+  const [students, readinessByStudent] = await Promise.all([
+    listStudents({ ...studentFiltersFrom(values), returning: "yes" }),
+    listStudentReadiness(),
+  ]);
 
   return (
     <>
@@ -55,6 +56,7 @@ export default async function ReturningStudentsPage(
 
       <StudentList
         students={students}
+        readinessByStudent={readinessByStudent}
         emptyMessage="No returning students yet. Mark a student as returning from Edit Student."
       />
     </>

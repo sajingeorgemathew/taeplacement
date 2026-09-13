@@ -1,4 +1,4 @@
-import { Layers } from "lucide-react";
+import { FileCheck, Layers } from "lucide-react";
 
 import ModulePlaceholder from "@/components/ui/ModulePlaceholder";
 import PageHeader from "@/components/ui/PageHeader";
@@ -23,12 +23,20 @@ export default function AdminPage() {
         >
           Configuration
         </h2>
-        <QuickAccessCard
-          title="Batch Management"
-          description="Create, edit, archive, and reactivate student batches."
-          href="/admin/batches"
-          icon={Layers}
-        />
+        <div className="grid gap-5 lg:grid-cols-2">
+          <QuickAccessCard
+            title="Batch Management"
+            description="Create, edit, archive, and reactivate student batches."
+            href="/admin/batches"
+            icon={Layers}
+          />
+          <QuickAccessCard
+            title="Document Requirements"
+            description="Maintain the placement document checklist every student is measured against."
+            href="/admin/document-requirements"
+            icon={FileCheck}
+          />
+        </div>
       </section>
 
       <ModulePlaceholder note="Placement areas, staff access, and other configurable options will be managed here." />

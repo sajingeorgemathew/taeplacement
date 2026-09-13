@@ -7,7 +7,6 @@ import { emptyFormState, type FormState } from "@/lib/forms/state";
 import {
   DEFAULT_PROGRAM,
   DEFAULT_PROVINCE,
-  DOCUMENT_STATUSES,
   DOCUMENT_STATUS_LABELS,
   PLACEMENT_STATUSES,
   PLACEMENT_STATUS_LABELS,
@@ -289,24 +288,28 @@ export default function StudentForm({
             </select>
           </Field>
 
-          <Field
-            label="Document Status"
-            htmlFor="document_status"
-            error={errors.document_status}
-          >
-            <select
-              id="document_status"
-              name="document_status"
-              defaultValue={student?.document_status ?? "not_reviewed"}
-              className={SELECT_CLASSES}
-            >
-              {DOCUMENT_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {DOCUMENT_STATUS_LABELS[status]}
-                </option>
-              ))}
-            </select>
-          </Field>
+          <div className="flex flex-col gap-2">
+            <span className="text-[16px] font-medium text-ink">
+              Document Status
+            </span>
+            <p className="flex h-14 items-center rounded-2xl border border-line bg-surface-muted px-5 text-[17px] text-ink">
+              {DOCUMENT_STATUS_LABELS[student?.document_status ?? "not_reviewed"]}
+            </p>
+            <p className="text-[15px] text-ink-muted">
+              Worked out from the document checklist, so it is never edited here.
+              {student ? (
+                <>
+                  {" "}
+                  <Link
+                    href={`/students/${student.id}/documents`}
+                    className="font-medium text-brand-strong hover:underline"
+                  >
+                    Open Placement Documents
+                  </Link>
+                </>
+              ) : null}
+            </p>
+          </div>
 
           <div className="md:col-span-2">
             <label

@@ -1,9 +1,12 @@
 import {
   DOCUMENT_STATUS_LABELS,
   DOCUMENT_STATUS_TONES,
+  PLACEMENT_DOCUMENT_STATUS_LABELS,
+  PLACEMENT_DOCUMENT_STATUS_TONES,
   PLACEMENT_STATUS_LABELS,
   PLACEMENT_STATUS_TONES,
   type DocumentStatus,
+  type PlacementDocumentStatus,
   type PlacementStatus,
   type Tone,
 } from "@/lib/placement/constants";
@@ -68,6 +71,23 @@ export function DocumentStatusPill({
     <StatusPill
       label={`Documents ${DOCUMENT_STATUS_LABELS[status]}`}
       tone={DOCUMENT_STATUS_TONES[status]}
+      size={size}
+    />
+  );
+}
+
+/** The status of a single requirement on a student's document checklist. */
+export function PlacementDocumentStatusPill({
+  status,
+  size,
+}: {
+  status: PlacementDocumentStatus;
+  size?: keyof typeof SIZE_CLASSES;
+}) {
+  return (
+    <StatusPill
+      label={PLACEMENT_DOCUMENT_STATUS_LABELS[status]}
+      tone={PLACEMENT_DOCUMENT_STATUS_TONES[status]}
       size={size}
     />
   );

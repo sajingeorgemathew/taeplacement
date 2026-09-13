@@ -1,10 +1,12 @@
 import { ChevronRight, MapPin } from "lucide-react";
 import Link from "next/link";
 
+import { ReadinessCount } from "@/components/documents/ReadinessSummary";
 import {
   DocumentStatusPill,
   PlacementStatusPill,
 } from "@/components/ui/StatusPill";
+import type { DocumentReadiness } from "@/lib/documents/queries";
 import { studentFullName } from "@/lib/format";
 import { locationLabel } from "@/lib/students/address";
 import type { StudentListItem } from "@/lib/students/queries";
@@ -13,7 +15,14 @@ import type { StudentListItem } from "@/lib/students/queries";
  * A large, comfortable student row. Deliberately not a dense table cell: the
  * whole row is a link and the important state is readable at a glance.
  */
-export default function StudentRow({ student }: { student: StudentListItem }) {
+export default function StudentRow({
+  student,
+  readiness,
+}: {
+  student: StudentListItem;
+  /** "9/13 documents". Omitted when the caller does not read readiness. */
+  readiness?: DocumentReadiness;
+}) {
   const location = locationLabel(student);
 
   return (
@@ -50,6 +59,7 @@ export default function StudentRow({ student }: { student: StudentListItem }) {
         <div className="flex flex-wrap items-center gap-2 lg:w-[22rem] lg:shrink-0">
           <PlacementStatusPill status={student.placement_status} />
           <DocumentStatusPill status={student.document_status} />
+          <ReadinessCount readiness={readiness} />
         </div>
 
         <span className="flex items-center gap-1 text-[16px] font-medium text-brand-strong lg:shrink-0">
@@ -73,9 +83,12 @@ export function StudentListEmpty({ message }: { message: string }) {
 export function StudentList({
   students,
   emptyMessage,
+  readinessByStudent,
 }: {
   students: StudentListItem[];
   emptyMessage: string;
+  /** Read once for the whole list rather than once per row. */
+  readinessByStudent?: Map<string, DocumentReadiness>;
 }) {
   if (students.length === 0) {
     return <StudentListEmpty message={emptyMessage} />;
@@ -84,7 +97,11 @@ export function StudentList({
   return (
     <ul className="flex flex-col gap-4">
       {students.map((student) => (
-        <StudentRow key={student.id} student={student} />
+        <StudentRow
+          key={student.id}
+          student={student}
+          readiness={readinessByStudent?.get(student.id)}
+        />
       ))}
     </ul>
   );
