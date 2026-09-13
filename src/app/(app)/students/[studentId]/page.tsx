@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import ReadinessSummary from "@/components/documents/ReadinessSummary";
+import StudentPlacementSection from "@/components/placement/StudentPlacementSection";
 import NotesPanel from "@/components/students/NotesPanel";
 import BackLink from "@/components/ui/BackLink";
 import {
@@ -10,12 +11,16 @@ import {
   PlacementDocumentStatusPill,
   PlacementStatusPill,
 } from "@/components/ui/StatusPill";
+import { canManagePlacements, getStaffSession } from "@/lib/auth/session";
 import {
   getStudentChecklist,
   getStudentReadiness,
 } from "@/lib/documents/queries";
 import { studentFullName, studentInitials } from "@/lib/format";
-import { PLACEMENT_STATUS_LABELS } from "@/lib/placement/constants";
+import {
+  getCurrentPlacement,
+  listStudentPlacements,
+} from "@/lib/placement/queries";
 import { locationLabel } from "@/lib/students/address";
 import { getStudent, listStudentNotes } from "@/lib/students/queries";
 import type { StudentListItem } from "@/lib/students/queries";
@@ -98,11 +103,17 @@ export default async function StudentPage(
   const student = await getStudent(studentId);
   if (!student) notFound();
 
-  const [notes, readiness, checklist] = await Promise.all([
-    listStudentNotes(student.id),
-    getStudentReadiness(student.id),
-    getStudentChecklist(student.id),
-  ]);
+  const [notes, readiness, checklist, placement, placements, session] =
+    await Promise.all([
+      listStudentNotes(student.id),
+      getStudentReadiness(student.id),
+      getStudentChecklist(student.id),
+      getCurrentPlacement(student.id),
+      listStudentPlacements(student.id),
+      getStaffSession(),
+    ]);
+
+  const canManage = canManagePlacements(session);
 
   const incomplete = checklist.filter(
     (item) =>
@@ -265,17 +276,14 @@ export default async function StudentPage(
 
           <Section
             title="Placement"
-            description="Placement assignment and partner matching come in a later ticket."
+            description="Their overall placement requirement, where they are placed now, and every placement that came before."
           >
-            <div className="rounded-2xl border border-line bg-surface-muted p-6">
-              <p className="text-[15px] text-ink-muted">Placement status</p>
-              <p className="mt-2 text-[24px] font-semibold text-ink">
-                {PLACEMENT_STATUS_LABELS[student.placement_status]}
-              </p>
-              <p className="mt-3 text-[16px] text-ink-muted">
-                No placement has been assigned to this student yet.
-              </p>
-            </div>
+            <StudentPlacementSection
+              student={student}
+              placement={placement}
+              history={placements}
+              canManage={canManage}
+            />
           </Section>
         </div>
       </div>

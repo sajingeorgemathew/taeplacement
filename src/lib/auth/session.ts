@@ -84,6 +84,23 @@ export function canManagePartners(session: StaffSession | null): boolean {
 }
 
 /**
+ * Who may change placement assignments.
+ *
+ * Management reads the Placement Board, a student's placement, and a partner's
+ * current students, but does not assign, cancel, change planned dates, or hold
+ * a student. This mirrors public.can_manage_placements() in the database, which
+ * together with the students guard trigger in 0006 is what actually enforces
+ * it.
+ */
+export function canManagePlacements(session: StaffSession | null): boolean {
+  const role = session?.profile?.role;
+  return Boolean(
+    session?.profile?.is_active &&
+      (role === "admin" || role === "placement_manager"),
+  );
+}
+
+/**
  * Guard for pages and actions that read or write student data.
  * Redirects to /login when there is no session and stops the request when the
  * staff account has not been activated.

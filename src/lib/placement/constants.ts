@@ -1,9 +1,13 @@
 /**
  * Shared operational vocabulary for students, batches, and placement state.
  *
- * These lists match the CHECK constraints in supabase/migrations/. Placement
- * stages will get richer in a later Placement ticket, so keep this file as the
- * single place where the current codes and their labels live.
+ * These lists match the CHECK constraints in supabase/migrations/. Keep this
+ * file as the single place where the current codes and their labels live.
+ *
+ * Two placement vocabularies live here and they are NOT the same thing:
+ * PLACEMENT_STATUSES is the high-level summary of a student's whole placement
+ * requirement, and PLACEMENT_RECORD_STATUSES is the status of one placement
+ * segment at one partner.
  */
 
 export const STAFF_ROLES = ["admin", "placement_manager", "management"] as const;
@@ -343,3 +347,174 @@ export const PARTNER_TYPE_OPTIONS = [
  */
 export const UNASSIGNED_AREA_ID = "unassigned";
 export const UNASSIGNED_AREA_LABEL = "Unassigned";
+
+/**
+ * Placement record vocabulary.
+ *
+ * This is the status of ONE student_placements row: one placement SEGMENT at
+ * one partner. It is NOT the same thing as students.placement_status, which
+ * stays the high-level summary of the student's whole placement requirement.
+ *
+ * The two completions are deliberately separate:
+ *
+ *   status = "completed"                    this segment finished
+ *   placement_status = "placement_completed" the student's whole requirement
+ *                                            finished
+ *
+ * A student may do part of their placement at one partner and the rest at
+ * another, so one does not imply the other.
+ *
+ * These match the CHECK constraint in
+ * supabase/migrations/0006_student_placements.sql.
+ */
+export const PLACEMENT_RECORD_STATUSES = [
+  "assigned",
+  "started",
+  "completed",
+  "ended_early",
+  "cancelled",
+] as const;
+
+export type PlacementRecordStatus = (typeof PLACEMENT_RECORD_STATUSES)[number];
+
+export const PLACEMENT_RECORD_STATUS_LABELS: Record<
+  PlacementRecordStatus,
+  string
+> = {
+  assigned: "Assigned",
+  started: "Started",
+  completed: "Completed",
+  ended_early: "Ended Early",
+  cancelled: "Cancelled",
+};
+
+/**
+ * Green for a segment that finished properly, amber for one that ended early
+ * (a real placement, just not a finished one), grey for an assignment that
+ * never meaningfully happened.
+ */
+export const PLACEMENT_RECORD_STATUS_TONES: Record<
+  PlacementRecordStatus,
+  Tone
+> = {
+  assigned: "info",
+  started: "info",
+  completed: "ready",
+  ended_early: "warning",
+  cancelled: "neutral",
+};
+
+/**
+ * The two ACTIVE placement record states. The database allows at most one row
+ * per student in either of them, enforced by a partial unique index.
+ *
+ * They are not interchangeable to the interface. An assigned placement can be
+ * started or cancelled; a started one can only be finished, because by then the
+ * student has actually been there.
+ */
+export const ACTIVE_PLACEMENT_RECORD_STATUSES: readonly PlacementRecordStatus[] =
+  ["assigned", "started"];
+
+/** The three FINISHED states. They stay permanently visible as history. */
+export const HISTORICAL_PLACEMENT_RECORD_STATUSES: readonly PlacementRecordStatus[] =
+  ["completed", "ended_early", "cancelled"];
+
+export function isActivePlacementRecordStatus(
+  status: PlacementRecordStatus,
+): boolean {
+  return ACTIVE_PLACEMENT_RECORD_STATUSES.includes(status);
+}
+
+export function isPlacementRecordStatus(
+  value: unknown,
+): value is PlacementRecordStatus {
+  return (
+    typeof value === "string" &&
+    PLACEMENT_RECORD_STATUSES.includes(value as PlacementRecordStatus)
+  );
+}
+
+/**
+ * The outcomes Finish Placement offers.
+ *
+ * Both of them describe a placement the student ACTUALLY PARTICIPATED IN. That
+ * is what finishing means, and it is why cancellation is not on this list:
+ *
+ *   Cancel Assignment   the assignment never meaningfully started. Only ever
+ *                       offered on an assigned placement, credits nothing, and
+ *                       never asks about the placement requirement.
+ *   Finish Placement    the student was here, and this segment is now ending.
+ *
+ * The distinction inside this list matters just as much. A student who worked
+ * at a partner and then moved has NOT had a cancelled placement: they had a
+ * real one that ended early, and their credited hours still count.
+ */
+export const PLACEMENT_OUTCOMES = ["completed", "ended_early"] as const;
+
+export type PlacementOutcome = (typeof PLACEMENT_OUTCOMES)[number];
+
+export const PLACEMENT_OUTCOME_LABELS: Record<PlacementOutcome, string> = {
+  completed: "Completed at this Partner",
+  ended_early: "Ended Early / Transferred",
+};
+
+export const PLACEMENT_OUTCOME_DESCRIPTIONS: Record<PlacementOutcome, string> = {
+  completed:
+    "The student finished this placement. Their hours here are credited.",
+  ended_early:
+    "The student really worked here, but the placement ended before it was finished. They may continue at another partner.",
+};
+
+export function isPlacementOutcome(value: unknown): value is PlacementOutcome {
+  return (
+    typeof value === "string" &&
+    PLACEMENT_OUTCOMES.includes(value as PlacementOutcome)
+  );
+}
+
+/**
+ * Whether a placement segment counts towards the student's credited hours.
+ *
+ * Everything except a cancellation. The database nulls credited_hours on a
+ * cancelled row anyway, so this is belt and braces, and it is also what stops a
+ * cancelled row appearing in an hours total by accident.
+ */
+export function countsTowardCreditedHours(
+  status: PlacementRecordStatus,
+): boolean {
+  return status !== "cancelled";
+}
+
+/**
+ * The placement statuses a student may be moved out of automatically.
+ *
+ * Mirrors public.is_pre_placement_status() in 0006. A student in any OTHER
+ * status has a real placement fact or a deliberate staff decision behind their
+ * status, and a document change must never drag them backwards.
+ */
+export const PRE_PLACEMENT_STATUSES: readonly PlacementStatus[] = [
+  "needs_review",
+  "documents_pending",
+  "ready_for_placement",
+];
+
+export function isPrePlacementStatus(status: PlacementStatus): boolean {
+  return PRE_PLACEMENT_STATUSES.includes(status);
+}
+
+/**
+ * not_reviewed -> needs_review, pending -> documents_pending,
+ * ready -> ready_for_placement.
+ *
+ * Mirrors public.placement_status_for_documents() in 0006 so the interface can
+ * SAY where a student would land. The database is what actually decides it, and
+ * the 13-document rules behind document_status are never re-implemented here.
+ */
+export const DOCUMENT_TO_PLACEMENT_STATUS: Record<
+  DocumentStatus,
+  PlacementStatus
+> = {
+  not_reviewed: "needs_review",
+  pending: "documents_pending",
+  ready: "ready_for_placement",
+};

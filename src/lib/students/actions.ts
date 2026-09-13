@@ -22,6 +22,20 @@ function isDuplicateStudentNumber(code: string | undefined): boolean {
   return code === "23505";
 }
 
+/**
+ * The students guard trigger from 0006 refusing a placement change.
+ *
+ * Every active staff member may edit a student, but only admin and
+ * placement_manager may move their placement status or put them on hold. The
+ * database is what enforces that; this only turns it into a sentence.
+ */
+function isPlacementChangeRefused(code: string | undefined): boolean {
+  return code === "42501";
+}
+
+const PLACEMENT_NOT_ALLOWED =
+  "Your account can edit this student but not change their placement status. Ask a placement manager or an admin.";
+
 export async function createStudentAction(
   _previous: FormState,
   formData: FormData,
@@ -50,6 +64,12 @@ export async function createStudentAction(
         fieldErrors: {
           student_number: "That student number is already used by another student.",
         },
+      };
+    }
+    if (isPlacementChangeRefused(error.code)) {
+      return {
+        error: PLACEMENT_NOT_ALLOWED,
+        fieldErrors: { placement_status: PLACEMENT_NOT_ALLOWED },
       };
     }
     return { error: "The student could not be saved. Try again.", fieldErrors: {} };
@@ -98,11 +118,18 @@ export async function updateStudentAction(
         },
       };
     }
+    if (isPlacementChangeRefused(error.code)) {
+      return {
+        error: PLACEMENT_NOT_ALLOWED,
+        fieldErrors: { placement_status: PLACEMENT_NOT_ALLOWED },
+      };
+    }
     return { error: "The changes could not be saved. Try again.", fieldErrors: {} };
   }
 
   revalidatePath("/students");
   revalidatePath(`/students/${studentId}`);
+  revalidatePath("/placement");
   redirect(`/students/${studentId}`);
 }
 

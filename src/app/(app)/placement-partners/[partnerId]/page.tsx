@@ -1,13 +1,8 @@
-import {
-  Globe,
-  GraduationCap,
-  MapPin,
-  Pencil,
-  Phone,
-} from "lucide-react";
+import { Globe, MapPin, Pencil, Phone } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import PartnerPlacementsSection from "@/components/placement/PartnerPlacementsSection";
 import AvailabilitySection from "@/components/partners/AvailabilitySection";
 import ContactsSection from "@/components/partners/ContactsSection";
 import FollowUpSection from "@/components/partners/FollowUpSection";
@@ -30,6 +25,7 @@ import {
   listPartnerContacts,
   listPartnerNotes,
 } from "@/lib/partners/queries";
+import { listPartnerPlacements } from "@/lib/placement/queries";
 import {
   AVAILABILITY_STATUS_TONES,
   RELATIONSHIP_STATUS_LABELS,
@@ -87,9 +83,10 @@ export default async function PlacementPartnerPage(
   const partner = await getPartner(partnerId);
   if (!partner) notFound();
 
-  const [contacts, notes, session] = await Promise.all([
+  const [contacts, notes, placements, session] = await Promise.all([
     listPartnerContacts(partner.id),
     listPartnerNotes(partner.id),
+    listPartnerPlacements(partner.id),
     getStaffSession(),
   ]);
 
@@ -286,16 +283,11 @@ export default async function PlacementPartnerPage(
         </div>
 
         <div className="lg:col-span-2">
-          <Section title="Current Placements">
-            <div className="flex items-start gap-4 rounded-2xl border border-line bg-surface-muted p-6">
-              <span className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface text-ink-muted">
-                <GraduationCap size={22} aria-hidden="true" />
-              </span>
-              <p className="text-[17px] text-ink-muted">
-                Student placements will appear here once placement assignment is
-                enabled.
-              </p>
-            </div>
+          <Section
+            title="Current Placements"
+            description="Students assigned to or currently on placement at this partner."
+          >
+            <PartnerPlacementsSection placements={placements} />
           </Section>
         </div>
 
