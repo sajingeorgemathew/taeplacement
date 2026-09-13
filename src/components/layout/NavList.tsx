@@ -32,7 +32,7 @@ export default function NavList({ onNavigate }: NavListProps) {
                 aria-current={active ? "page" : undefined}
                 className={`flex items-center gap-3 rounded-xl px-4 py-3 text-[17px] font-medium transition-colors ${
                   active
-                    ? "bg-brand-soft text-brand-strong"
+                    ? "bg-brand-soft text-brand-strong ring-1 ring-brand-line"
                     : "text-ink-muted hover:bg-surface-muted hover:text-ink"
                 }`}
               >

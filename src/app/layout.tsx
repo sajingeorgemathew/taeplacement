@@ -10,9 +10,17 @@ const geistSans = Geist({
   subsets: ["latin"],
 });
 
+/**
+ * The tab icon comes from src/app/icon.png, the supplied academy favicon. It is
+ * picked up by the App Router file convention, so no icon is declared here.
+ */
 export const metadata: Metadata = {
-  title: APP_NAME,
+  title: {
+    default: APP_NAME,
+    template: `%s · ${APP_NAME}`,
+  },
   description: APP_FULL_NAME,
+  applicationName: APP_NAME,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
