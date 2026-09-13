@@ -193,6 +193,26 @@ export type PartnerNoteRow = Timestamps & {
 };
 
 /**
+ * One normalized student city mapped to one operational placement area.
+ *
+ * The bridge between students.city and placement_areas. There is deliberately
+ * no area_id on a student: their Area is always derived through this table, so
+ * re-mapping a city rewrites no student record and correcting one student's
+ * city disturbs nobody else's Area.
+ *
+ * Unmapped is the ABSENCE of a row here, never a placeholder row and never a
+ * fake area.
+ */
+export type PlacementAreaCityRow = Timestamps & {
+  id: string;
+  area_id: string;
+  /** Readable label, for example "Mississauga". Never written to a student. */
+  city_name: string;
+  /** Trimmed, whitespace collapsed, lowercased. Unique across the table. */
+  normalized_city_name: string;
+};
+
+/**
  * One Student <-> Placement Partner placement.
  *
  * A student may have many rows over time and none is ever deleted. The database
@@ -301,6 +321,13 @@ export type PartnerNoteInsert = Omit<
 > &
   Partial<Pick<PartnerNoteRow, "id">>;
 
+export type PlacementAreaCityInsert = Omit<
+  PlacementAreaCityRow,
+  "id" | "created_at" | "updated_at"
+> &
+  Partial<Pick<PlacementAreaCityRow, "id">>;
+export type PlacementAreaCityUpdate = Partial<PlacementAreaCityInsert>;
+
 export type StudentPlacementInsert = Omit<
   StudentPlacementRow,
   "id" | "created_at" | "updated_at" | "assigned_at"
@@ -349,6 +376,11 @@ export type Database = {
         PartnerNoteRow,
         PartnerNoteInsert,
         never
+      >;
+      placement_area_cities: TableShape<
+        PlacementAreaCityRow,
+        PlacementAreaCityInsert,
+        PlacementAreaCityUpdate
       >;
       student_placements: TableShape<
         StudentPlacementRow,

@@ -36,7 +36,14 @@ function ReadinessText({ student }: { student: PlacementBoardStudent }) {
  * as a board card laid out along a line, and completed placements are visible
  * here because this is where history belongs.
  */
-function PlacementRow({ student }: { student: PlacementBoardStudent }) {
+function PlacementRow({
+  student,
+  action,
+}: {
+  student: PlacementBoardStudent;
+  /** Optional extra control rendered under the row, outside its link. */
+  action?: React.ReactNode;
+}) {
   const placement = student.currentPlacement;
   const plannedStart = formatShortDate(placement?.planned_start_date);
 
@@ -99,6 +106,7 @@ function PlacementRow({ student }: { student: PlacementBoardStudent }) {
           <ChevronRight size={20} aria-hidden="true" />
         </span>
       </Link>
+      {action ? <div className="mt-2 pl-6 sm:pl-7">{action}</div> : null}
     </li>
   );
 }
@@ -106,9 +114,17 @@ function PlacementRow({ student }: { student: PlacementBoardStudent }) {
 export default function PlacementList({
   students,
   emptyMessage,
+  renderAction,
 }: {
   students: PlacementBoardStudent[];
   emptyMessage: string;
+  /**
+   * Optional per-row control, rendered OUTSIDE the row's link so nothing is
+   * nested inside an anchor. Batch Planning uses it to point a ready student at
+   * the existing Find Placement flow; every other caller passes nothing and the
+   * markup is unchanged.
+   */
+  renderAction?: (student: PlacementBoardStudent) => React.ReactNode;
 }) {
   if (students.length === 0) {
     return (
@@ -121,7 +137,11 @@ export default function PlacementList({
   return (
     <ul className="flex flex-col gap-4">
       {students.map((student) => (
-        <PlacementRow key={student.id} student={student} />
+        <PlacementRow
+          key={student.id}
+          student={student}
+          action={renderAction?.(student)}
+        />
       ))}
     </ul>
   );
