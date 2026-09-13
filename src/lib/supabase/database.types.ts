@@ -1,5 +1,5 @@
 /**
- * Hand written database types for the PLACEMENT-01 to PLACEMENT-03 schema.
+ * Hand written database types for the PLACEMENT-01 to PLACEMENT-04 schema.
  *
  * Keep this file in step with supabase/migrations/. It is deliberately small:
  * only the tables this application actually reads and writes.
@@ -16,6 +16,7 @@ import type {
   AvailabilityStatus,
   DocumentStatus,
   PlacementDocumentStatus,
+  PlacementRecordStatus,
   PlacementStatus,
   RelationshipStatus,
   StaffRole,
@@ -60,6 +61,9 @@ export type StudentRow = Timestamps & {
   is_returning: boolean;
   placement_status: PlacementStatus;
   document_status: DocumentStatus;
+  /** Short optional reason the student is On Hold. Null when not on hold. */
+  placement_hold_reason: string | null;
+  placement_hold_at: string | null;
   is_active: boolean;
   migration_source: string | null;
 };
@@ -188,6 +192,40 @@ export type PartnerNoteRow = Timestamps & {
   created_by: string | null;
 };
 
+/**
+ * One Student <-> Placement Partner placement.
+ *
+ * A student may have many rows over time and none is ever deleted. The database
+ * allows at most ONE row per student in an active status (assigned or started),
+ * enforced by a partial unique index rather than by application convention.
+ *
+ * status here is the status of THIS placement SEGMENT. It is not the student's
+ * overall placement requirement: that is students.placement_status, a separate
+ * high-level summary kept in step by triggers in 0006. A student may complete
+ * one segment, end another early, and only then be placement_completed.
+ */
+export type StudentPlacementRow = Timestamps & {
+  id: string;
+  student_id: string;
+  partner_id: string;
+  status: PlacementRecordStatus;
+  assigned_at: string;
+  assigned_by: string | null;
+  /** DATE values ("2026-04-27"), because a placement day must not shift. */
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+  actual_start_date: string | null;
+  actual_end_date: string | null;
+  assignment_note: string | null;
+  /** The final hours staff accept for THIS segment. Not a timesheet. */
+  credited_hours: number | null;
+  completion_note: string | null;
+  /** Only ever set on ended_early. A cancellation uses cancellation_reason. */
+  end_reason: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+};
+
 type TableShape<Row, Insert, Update> = {
   Row: Row;
   Insert: Insert;
@@ -199,8 +237,14 @@ export type BatchInsert = Omit<BatchRow, "id" | "created_at" | "updated_at"> &
   Partial<Pick<BatchRow, "id">>;
 export type BatchUpdate = Partial<BatchInsert>;
 
-export type StudentInsert = Omit<StudentRow, "id" | "created_at" | "updated_at"> &
-  Partial<Pick<StudentRow, "id">>;
+/** The hold columns default to null, so no caller has to send them. */
+export type StudentInsert = Omit<
+  StudentRow,
+  "id" | "created_at" | "updated_at" | "placement_hold_reason" | "placement_hold_at"
+> &
+  Partial<
+    Pick<StudentRow, "id" | "placement_hold_reason" | "placement_hold_at">
+  >;
 export type StudentUpdate = Partial<StudentInsert>;
 
 export type StudentNoteInsert = Omit<
@@ -257,6 +301,13 @@ export type PartnerNoteInsert = Omit<
 > &
   Partial<Pick<PartnerNoteRow, "id">>;
 
+export type StudentPlacementInsert = Omit<
+  StudentPlacementRow,
+  "id" | "created_at" | "updated_at" | "assigned_at"
+> &
+  Partial<Pick<StudentPlacementRow, "id" | "assigned_at">>;
+export type StudentPlacementUpdate = Partial<StudentPlacementInsert>;
+
 export type Database = {
   public: {
     Tables: {
@@ -299,6 +350,11 @@ export type Database = {
         PartnerNoteInsert,
         never
       >;
+      student_placements: TableShape<
+        StudentPlacementRow,
+        StudentPlacementInsert,
+        StudentPlacementUpdate
+      >;
     };
     Views: {
       student_document_readiness: TableShape<
@@ -315,6 +371,33 @@ export type Database = {
       initialize_all_placement_documents: {
         Args: Record<string, never>;
         Returns: number;
+      };
+      /**
+       * Takes a student off hold and back to whatever the facts say: their
+       * live placement record if they still have one, otherwise their current
+       * document readiness. Never blindly "Ready".
+       */
+      release_student_placement_hold: {
+        Args: { p_student_id: string };
+        Returns: string | null;
+      };
+      /**
+       * Ends ONE placement segment and moves the student to the right place:
+       * placement_completed when this finishes their whole requirement,
+       * otherwise back to their document-derived pre-placement status so
+       * another placement can be assigned at another partner.
+       */
+      finish_student_placement: {
+        Args: {
+          p_placement_id: string;
+          p_status: "completed" | "ended_early" | "cancelled";
+          p_actual_end_date: string | null;
+          p_credited_hours: number | null;
+          p_completion_note: string | null;
+          p_end_reason: string | null;
+          p_completes_requirement: boolean;
+        };
+        Returns: string | null;
       };
     };
     Enums: Record<string, never>;

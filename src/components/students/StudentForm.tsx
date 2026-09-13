@@ -272,6 +272,7 @@ export default function StudentForm({
           <Field
             label="Placement Status"
             htmlFor="placement_status"
+            hint="Normally looked after for you: the document checklist moves a student up to Ready, and assigning a placement moves them on from there. Change it here only to correct a historical record."
             error={errors.placement_status}
           >
             <select

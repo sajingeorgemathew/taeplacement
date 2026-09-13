@@ -38,8 +38,8 @@ The product rules that govern all of this work live in
 
 ## Current status
 
-The Students, Placement Documents, and Placement Partners modules are real and
-database backed. Everything else is still the foundation shell.
+The Students, Placement Documents, Placement Partners, and Placement modules are
+real and database backed. Everything else is still the foundation shell.
 
 What works today:
 
@@ -47,7 +47,8 @@ What works today:
 - every staff route requires a signed in, admin activated account
 - Supabase Postgres with Row Level Security on profiles, batches, students,
   student notes, document requirements, student documents, placement packages,
-  placement areas, placement partners, partner contacts, and partner notes
+  placement areas, placement partners, partner contacts, partner notes, and
+  student placements
 - Students page with live counts, batch cards, search, and filters
 - batch pages, Previous / Returning students, and single student pages
 - Add Student, Edit Student, and internal student notes
@@ -57,20 +58,25 @@ What works today:
 - the Placement Partners module: Area Board with drag and drop, List View,
   partner profiles, many contacts per partner, partner comments, and follow-up
   dates
+- the Placement module: the Placement Board and List View, Find Placement,
+  student-to-partner assignment with planned dates, cancellation that keeps the
+  record, On Hold, placement history, and current placements on a partner
 - Batch Management, Document Requirements, and Placement Areas in Admin
 - two one-time local Excel migration scripts, for students and for partners
 
 What is deliberately not built yet:
 
-- placement assignment, partner matching, and check-ins
-- placement capacity and distance
+- check-ins, attendance, placement hours, and evaluations
+- the placement start and completion workflow
+- placement capacity, slots, and distance
 - notifications
 - Dashboard redesign
 
 The modules are documented in
 [docs/product/students-and-batches.md](docs/product/students-and-batches.md),
 [docs/product/student-placement-documents.md](docs/product/student-placement-documents.md),
-and [docs/product/placement-partners.md](docs/product/placement-partners.md).
+[docs/product/placement-partners.md](docs/product/placement-partners.md), and
+[docs/product/student-placement-assignment.md](docs/product/student-placement-assignment.md).
 
 ## Local development
 
@@ -88,7 +94,8 @@ npm run lint     # ESLint
 1. Create a Supabase project.
 2. Run the migrations in `supabase/migrations/` in order in the SQL editor:
    `0001_placement_core.sql`, `0002_placement_documents.sql`,
-   `0003_final_placement_package.sql`, then `0004_placement_partners.sql`.
+   `0003_final_placement_package.sql`, `0004_placement_partners.sql`,
+   `0005_partner_board_refinements.sql`, then `0006_student_placements.sql`.
 3. Put the project URL and anon key in `.env.local`.
 4. Create the first staff user in the Supabase Auth dashboard, then activate
    their profile (see
@@ -110,7 +117,29 @@ stored in `public/` or committed to Git.
 
 `0004_placement_partners.sql` is additive: it adds the partner network and seeds
 six editable placement areas, and it changes nothing about students, batches,
-notes, or documents.
+notes, or documents. `0005_partner_board_refinements.sql` adds Area colours and
+Partner Placement Availability on top of it.
+
+`0006_student_placements.sql` is additive in the same way: it adds
+`student_placements`, the two placement hold columns on `students`,
+`finish_student_placement()`, and the triggers that keep
+`students.placement_status` in step with document readiness and with real
+placement records. It rewrites no earlier migration, resets nothing, re-imports
+no student and no partner, and infers no historical placement from any
+spreadsheet. Running it preserves all 86 students and every imported placement
+partner.
+
+It keeps two completions deliberately apart. `student_placements.status =
+completed` means ONE placement segment finished at ONE partner;
+`students.placement_status = placement_completed` means the student's WHOLE
+placement requirement is finished. A student may do 120 hours at one LTC, end
+there early, and finish the remaining 180 somewhere else, so a placement that
+ends is not a cancellation and is not automatically a completion.
+
+It keeps the two endings apart too. An `assigned` placement can be started or
+cancelled; a `started` one can only be finished, as `completed` or
+`ended_early`. A student who was actually at a partner was never "cancelled",
+and their credited hours have to land somewhere.
 
 `SUPABASE_SERVICE_ROLE_KEY` is only needed for the two one-time migration
 scripts, `scripts/import-initial-students.ts` and
@@ -119,8 +148,8 @@ stays in `.env.local` and is never exposed to the browser.
 
 ## Current ticket
 
-PLACEMENT-03 - Placement Partners, Contacts and Areas
-([docs/tickets/PLACEMENT-03-partners.md](docs/tickets/PLACEMENT-03-partners.md))
+PLACEMENT-04 - Student Placement Assignment and Placement Board
+([docs/tickets/PLACEMENT-04-assignment-board.md](docs/tickets/PLACEMENT-04-assignment-board.md))
 
 ## Privacy warning
 

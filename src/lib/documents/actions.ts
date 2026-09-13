@@ -46,6 +46,9 @@ function revalidateStudent(studentId: string) {
   revalidatePath(`/students/${studentId}/documents`);
   revalidatePath(`/students/${studentId}`);
   revalidatePath("/students");
+  // A checklist change can move a PRE-placement student between board columns,
+  // so the Placement Board is refreshed with them.
+  revalidatePath("/placement");
 }
 
 /**
