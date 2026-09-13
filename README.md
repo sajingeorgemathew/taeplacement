@@ -38,35 +38,39 @@ The product rules that govern all of this work live in
 
 ## Current status
 
-The Students and Placement Documents modules are real and database backed.
-Everything else is still the foundation shell.
+The Students, Placement Documents, and Placement Partners modules are real and
+database backed. Everything else is still the foundation shell.
 
 What works today:
 
 - staff email and password sign in at `/login`, with no public registration
 - every staff route requires a signed in, admin activated account
 - Supabase Postgres with Row Level Security on profiles, batches, students,
-  student notes, document requirements, student documents, and placement
-  packages
+  student notes, document requirements, student documents, placement packages,
+  placement areas, placement partners, partner contacts, and partner notes
 - Students page with live counts, batch cards, search, and filters
 - batch pages, Previous / Returning students, and single student pages
 - Add Student, Edit Student, and internal student notes
 - the placement document checklist, with readiness derived from it
 - one merged Final Placement Package per student, uploaded to a non-public
   Supabase Storage bucket
-- Batch Management and Document Requirements in Admin
-- a one-time local Excel migration script
+- the Placement Partners module: Area Board with drag and drop, List View,
+  partner profiles, many contacts per partner, partner comments, and follow-up
+  dates
+- Batch Management, Document Requirements, and Placement Areas in Admin
+- two one-time local Excel migration scripts, for students and for partners
 
 What is deliberately not built yet:
 
-- placement partner / LTC accounts
 - placement assignment, partner matching, and check-ins
+- placement capacity and distance
 - notifications
 - Dashboard redesign
 
 The modules are documented in
-[docs/product/students-and-batches.md](docs/product/students-and-batches.md) and
-[docs/product/student-placement-documents.md](docs/product/student-placement-documents.md).
+[docs/product/students-and-batches.md](docs/product/students-and-batches.md),
+[docs/product/student-placement-documents.md](docs/product/student-placement-documents.md),
+and [docs/product/placement-partners.md](docs/product/placement-partners.md).
 
 ## Local development
 
@@ -83,8 +87,8 @@ npm run lint     # ESLint
 
 1. Create a Supabase project.
 2. Run the migrations in `supabase/migrations/` in order in the SQL editor:
-   `0001_placement_core.sql`, `0002_placement_documents.sql`, then
-   `0003_final_placement_package.sql`.
+   `0001_placement_core.sql`, `0002_placement_documents.sql`,
+   `0003_final_placement_package.sql`, then `0004_placement_partners.sql`.
 3. Put the project URL and anon key in `.env.local`.
 4. Create the first staff user in the Supabase Auth dashboard, then activate
    their profile (see
@@ -104,14 +108,19 @@ student, which an admin prepares outside TAE Placement. It is private: it lives
 only in that bucket, is read through short-lived signed URLs, and is never
 stored in `public/` or committed to Git.
 
-`SUPABASE_SERVICE_ROLE_KEY` is only needed for the one-time student migration
-script. It bypasses Row Level Security, so it stays in `.env.local` and is never
-exposed to the browser.
+`0004_placement_partners.sql` is additive: it adds the partner network and seeds
+six editable placement areas, and it changes nothing about students, batches,
+notes, or documents.
+
+`SUPABASE_SERVICE_ROLE_KEY` is only needed for the two one-time migration
+scripts, `scripts/import-initial-students.ts` and
+`scripts/import-placement-partners.ts`. It bypasses Row Level Security, so it
+stays in `.env.local` and is never exposed to the browser.
 
 ## Current ticket
 
-PLACEMENT-02 - Student Placement Documents
-([docs/tickets/PLACEMENT-02-student-documents.md](docs/tickets/PLACEMENT-02-student-documents.md))
+PLACEMENT-03 - Placement Partners, Contacts and Areas
+([docs/tickets/PLACEMENT-03-partners.md](docs/tickets/PLACEMENT-03-partners.md))
 
 ## Privacy warning
 
@@ -121,8 +130,9 @@ public repository.
 
 Specifically:
 
-- the local student workbook in this directory is private and must not be
-  committed, renamed, moved, or served from `public/`
+- the local student workbook in this directory and the cleaned partner workbook
+  under `_private/imports/` are private and must not be committed, renamed,
+  moved, or served from `public/`
 - `*.xlsx`, `*.xls`, and `*.csv` are ignored by Git and must stay ignored
 - `.env`, `.env.local`, and `.env.*.local` are ignored by Git
 - `_private/` and `_reference/private/` are ignored by Git

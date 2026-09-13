@@ -29,6 +29,9 @@ out/
 # Vercel
 .vercel/
 
+# Supabase CLI scratch
+supabase/.temp/
+
 # Local student / placement data
 # Never commit student spreadsheets or exports.
 *.xlsx

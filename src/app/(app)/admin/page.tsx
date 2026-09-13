@@ -1,4 +1,4 @@
-import { FileCheck, Layers } from "lucide-react";
+import { FileCheck, Layers, Map } from "lucide-react";
 
 import ModulePlaceholder from "@/components/ui/ModulePlaceholder";
 import PageHeader from "@/components/ui/PageHeader";
@@ -36,10 +36,16 @@ export default function AdminPage() {
             href="/admin/document-requirements"
             icon={FileCheck}
           />
+          <QuickAccessCard
+            title="Placement Areas"
+            description="Add, rename, reorder, and archive the areas placement partners are grouped into."
+            href="/admin/placement-areas"
+            icon={Map}
+          />
         </div>
       </section>
 
-      <ModulePlaceholder note="Placement areas, staff access, and other configurable options will be managed here." />
+      <ModulePlaceholder note="Staff access and other configurable options will be managed here." />
     </>
   );
 }

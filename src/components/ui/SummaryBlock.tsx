@@ -36,11 +36,14 @@ type SummaryBlockProps = {
   note: string;
   tone: SummaryTone;
   icon: LucideIcon;
-  /** Optional filtered view of the student list. */
+  /** Optional filtered view of the list this block counts. */
   href?: string;
 };
 
-/** One of the three large live operational blocks on the Students page. */
+/**
+ * One large live operational block. Three of them head the Students page and
+ * the Placement Partners page.
+ */
 export default function SummaryBlock({
   label,
   value,

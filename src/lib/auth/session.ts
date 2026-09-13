@@ -68,6 +68,22 @@ export function canManageDocuments(session: StaffSession | null): boolean {
 }
 
 /**
+ * Who may change the placement partner network.
+ *
+ * Management reads partners, contacts, and notes but does not create or edit
+ * them. This mirrors public.can_manage_partners() in the database, which is the
+ * policy that actually enforces it. Configuring the AREA DEFINITIONS is admin
+ * only and uses isAdmin() instead.
+ */
+export function canManagePartners(session: StaffSession | null): boolean {
+  const role = session?.profile?.role;
+  return Boolean(
+    session?.profile?.is_active &&
+      (role === "admin" || role === "placement_manager"),
+  );
+}
+
+/**
  * Guard for pages and actions that read or write student data.
  * Redirects to /login when there is no session and stops the request when the
  * staff account has not been activated.

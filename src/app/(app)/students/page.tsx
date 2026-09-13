@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import BatchCard, { ReturningCard } from "@/components/students/BatchCard";
 import { StudentList } from "@/components/students/StudentRow";
-import SummaryBlock from "@/components/students/SummaryBlock";
+import SummaryBlock from "@/components/ui/SummaryBlock";
 import StudentToolbar from "@/components/students/StudentToolbar";
 import { listStudentReadiness } from "@/lib/documents/queries";
 import { studentCountLabel } from "@/lib/format";

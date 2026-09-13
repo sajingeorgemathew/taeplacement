@@ -15,6 +15,7 @@ const TONE_CLASSES: Record<Tone, string> = {
   info: "border-info-line bg-info-soft text-info-ink",
   ready: "border-ready-line bg-ready-soft text-ready-ink",
   attention: "border-attention-line bg-attention-soft text-attention-ink",
+  warning: "border-warning-line bg-warning-soft text-warning-ink",
   neutral: "border-line bg-surface-muted text-ink-muted",
 };
 
