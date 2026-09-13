@@ -1,4 +1,4 @@
-import { FileCheck, Layers, Map } from "lucide-react";
+import { FileCheck, Layers, Map, MapPin } from "lucide-react";
 
 import ModulePlaceholder from "@/components/ui/ModulePlaceholder";
 import PageHeader from "@/components/ui/PageHeader";
@@ -41,6 +41,12 @@ export default function AdminPage() {
             description="Add, rename, reorder, and archive the areas placement partners are grouped into."
             href="/admin/placement-areas"
             icon={Map}
+          />
+          <QuickAccessCard
+            title="City to Area Mapping"
+            description="Decide which Placement Area each student city belongs to. This is what groups a batch by area in Batch Planning."
+            href="/admin/city-area-mapping"
+            icon={MapPin}
           />
         </div>
       </section>

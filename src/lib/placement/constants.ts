@@ -100,6 +100,23 @@ export function isDocumentReady(status: PlacementDocumentStatus): boolean {
 }
 
 /**
+ * The only statuses Mark Remaining as Received may move.
+ *
+ * Nothing that carries a decision is listed. needs_update is a known problem a
+ * staff member has to resolve deliberately, not_applicable is a judgement
+ * already made, and received is done. Not Reviewed and Requested are the two
+ * that simply mean "nobody has cleared this yet".
+ */
+export const BULK_RECEIVE_ELIGIBLE_STATUSES: readonly PlacementDocumentStatus[] =
+  ["not_reviewed", "requested"];
+
+export function isBulkReceiveEligible(
+  status: PlacementDocumentStatus,
+): boolean {
+  return BULK_RECEIVE_ELIGIBLE_STATUSES.includes(status);
+}
+
+/**
  * Visual tone used by status pills and summary blocks.
  *
  * warning is the amber middle ground: something that is not a problem and not

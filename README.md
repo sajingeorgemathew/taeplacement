@@ -39,7 +39,8 @@ The product rules that govern all of this work live in
 ## Current status
 
 The Students, Placement Documents, Placement Partners, and Placement modules are
-real and database backed. Everything else is still the foundation shell.
+real and database backed, and Placement now includes Batch Planning. Everything
+else is still the foundation shell.
 
 What works today:
 
@@ -61,7 +62,12 @@ What works today:
 - the Placement module: the Placement Board and List View, Find Placement,
   student-to-partner assignment with planned dates, cancellation that keeps the
   record, On Hold, placement history, and current placements on a partner
-- Batch Management, Document Requirements, and Placement Areas in Admin
+- Batch Planning: a batch selector, live batch summary, geographic Area cards
+  with student and partner-availability breakdowns, Unmapped City and City
+  Missing exceptions, and an Area drill-down showing the students in an Area
+  beside the placement partners in it
+- Batch Management, Document Requirements, Placement Areas, and City to Area
+  Mapping in Admin
 - two one-time local Excel migration scripts, for students and for partners
 
 What is deliberately not built yet:
@@ -75,8 +81,10 @@ What is deliberately not built yet:
 The modules are documented in
 [docs/product/students-and-batches.md](docs/product/students-and-batches.md),
 [docs/product/student-placement-documents.md](docs/product/student-placement-documents.md),
-[docs/product/placement-partners.md](docs/product/placement-partners.md), and
-[docs/product/student-placement-assignment.md](docs/product/student-placement-assignment.md).
+[docs/product/placement-partners.md](docs/product/placement-partners.md),
+[docs/product/student-placement-assignment.md](docs/product/student-placement-assignment.md),
+and
+[docs/product/batch-placement-planning.md](docs/product/batch-placement-planning.md).
 
 ## Local development
 
@@ -95,7 +103,8 @@ npm run lint     # ESLint
 2. Run the migrations in `supabase/migrations/` in order in the SQL editor:
    `0001_placement_core.sql`, `0002_placement_documents.sql`,
    `0003_final_placement_package.sql`, `0004_placement_partners.sql`,
-   `0005_partner_board_refinements.sql`, then `0006_student_placements.sql`.
+   `0005_partner_board_refinements.sql`, `0006_student_placements.sql`, then
+   `0007_batch_placement_planning.sql`.
 3. Put the project URL and anon key in `.env.local`.
 4. Create the first staff user in the Supabase Auth dashboard, then activate
    their profile (see
@@ -141,6 +150,23 @@ cancelled; a `started` one can only be finished, as `completed` or
 `ended_early`. A student who was actually at a partner was never "cancelled",
 and their credited hours have to land somewhere.
 
+`0007_batch_placement_planning.sql` is additive in the same way. It adds one
+table, `placement_area_cities`, which maps a normalized student city to one
+operational placement area, plus a guard that stops an area cities point at from
+being hard deleted. It rewrites no earlier migration, resets nothing, re-imports
+nobody, changes no student city value, and modifies no historical placement.
+
+It seeds **no** mappings. Guessing that "Mississauga" belongs to "Peel" would be
+the migration inventing Ontario geography, and a wrong guess would quietly plan
+a batch around the wrong partners. Cities are mapped by an admin at
+`/admin/city-area-mapping`, from the cities their own students actually have.
+
+There is deliberately no `students.area_id`. A student's placement area is
+always derived: `students.city` -> normalized city -> `placement_area_cities` ->
+`placement_areas`, which is the same `placement_areas.id` that partners are
+grouped by. A city with no mapping is Unmapped, and Unmapped is the absence of a
+row rather than a placeholder area.
+
 `SUPABASE_SERVICE_ROLE_KEY` is only needed for the two one-time migration
 scripts, `scripts/import-initial-students.ts` and
 `scripts/import-placement-partners.ts`. It bypasses Row Level Security, so it
@@ -148,8 +174,8 @@ stays in `.env.local` and is never exposed to the browser.
 
 ## Current ticket
 
-PLACEMENT-04 - Student Placement Assignment and Placement Board
-([docs/tickets/PLACEMENT-04-assignment-board.md](docs/tickets/PLACEMENT-04-assignment-board.md))
+PLACEMENT-05A - Batch Placement Planning and City-to-Area Mapping
+([docs/tickets/PLACEMENT-05A-batch-planning.md](docs/tickets/PLACEMENT-05A-batch-planning.md))
 
 ## Privacy warning
 

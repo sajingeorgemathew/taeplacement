@@ -12,7 +12,10 @@ import {
   fieldErrorsFrom,
   type FormState,
 } from "@/lib/forms/state";
-import type { PlacementDocumentStatus } from "@/lib/placement/constants";
+import {
+  BULK_RECEIVE_ELIGIBLE_STATUSES,
+  type PlacementDocumentStatus,
+} from "@/lib/placement/constants";
 import type { StudentDocumentUpdate } from "@/lib/supabase/database.types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -290,9 +293,9 @@ export async function removePlacementPackageAction(input: {
 /**
  * Mark every requirement for one student back to Not Reviewed.
  *
- * The only bulk convenience offered here. There is deliberately no bulk
- * "mark everything Received" and no multi-student action: readiness must never
- * change by accident. Any uploaded Final Placement Package is kept.
+ * One of the two bulk conveniences, and both stay on a single student: there is
+ * no multi-student action, because readiness must never change by accident.
+ * Any uploaded Final Placement Package is kept.
  */
 export async function resetStudentDocumentsAction(input: {
   studentId: string;
@@ -315,6 +318,48 @@ export async function resetStudentDocumentsAction(input: {
 
   if (error) {
     return { error: "The checklist could not be reset. Try again." };
+  }
+
+  revalidateStudent(input.studentId);
+  return OK;
+}
+
+/**
+ * Mark every Not Reviewed or Requested requirement for one student Received.
+ *
+ * A shortcut for staff who have already reviewed the whole package and should
+ * not have to click thirteen rows. Deliberately narrow: needs_update carries a
+ * known problem someone has to resolve on purpose, not_applicable is a
+ * judgement already made, and received is done, so none of the three are
+ * touched.
+ *
+ * One filtered UPDATE, so every row it moves fires the same per-row trigger a
+ * single Mark Received fires. Document readiness and, for a student still
+ * PRE-placement, the placement status follow from the database exactly as they
+ * would have one click at a time; an assigned, started, completed, or on-hold
+ * student keeps their placement status.
+ */
+export async function markRemainingDocumentsReceivedAction(input: {
+  studentId: string;
+}): Promise<DocumentActionResult> {
+  const session = await requireActiveStaff();
+  if (!canManageDocuments(session)) return NOT_ALLOWED;
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("student_placement_documents")
+    .update({
+      status: "received",
+      updated_by: session.userId,
+      ...auditFor("received", session.userId),
+    })
+    .eq("student_id", input.studentId)
+    .in("status", [...BULK_RECEIVE_ELIGIBLE_STATUSES]);
+
+  if (error) {
+    return {
+      error: "Those documents could not be marked Received. Try again.",
+    };
   }
 
   revalidateStudent(input.studentId);

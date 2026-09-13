@@ -2,8 +2,6 @@ import {
   Building2,
   CheckCircle2,
   ChevronRight,
-  Columns3,
-  List,
   PauseCircle,
   UserCheck,
 } from "lucide-react";
@@ -12,6 +10,7 @@ import Link from "next/link";
 import PlacementBoard from "@/components/placement/PlacementBoard";
 import PlacementList from "@/components/placement/PlacementList";
 import PlacementToolbar from "@/components/placement/PlacementToolbar";
+import PlacementViewSwitch from "@/components/placement/PlacementViewSwitch";
 import SummaryBlock from "@/components/ui/SummaryBlock";
 import { canManagePlacements, getStaffSession } from "@/lib/auth/session";
 import { formatShortDate, studentCountLabel, studentFullName } from "@/lib/format";
@@ -34,48 +33,7 @@ export const metadata = {
 };
 
 const BASE_PATH = "/placement";
-
-/** The two view controls. Board is the default. */
-function ViewSwitch({
-  current,
-  boardHref,
-  listHref,
-}: {
-  current: "board" | "list";
-  boardHref: string;
-  listHref: string;
-}) {
-  const base =
-    "inline-flex items-center gap-2 rounded-2xl px-6 py-4 text-[17px] font-semibold transition-colors";
-  const on = "bg-brand text-white";
-  const off =
-    "border border-line bg-surface text-ink hover:border-brand hover:bg-brand-soft hover:text-brand-strong";
-
-  return (
-    <div
-      role="group"
-      aria-label="Choose how to view placement"
-      className="flex flex-wrap gap-3"
-    >
-      <Link
-        href={boardHref}
-        aria-current={current === "board" ? "true" : undefined}
-        className={`${base} ${current === "board" ? on : off}`}
-      >
-        <Columns3 size={22} aria-hidden="true" />
-        Board
-      </Link>
-      <Link
-        href={listHref}
-        aria-current={current === "list" ? "true" : undefined}
-        className={`${base} ${current === "list" ? on : off}`}
-      >
-        <List size={22} aria-hidden="true" />
-        List
-      </Link>
-    </div>
-  );
-}
+const PLANNING_PATH = "/placement/planning";
 
 export default async function PlacementPage(
   props: PageProps<"/placement">,
@@ -158,9 +116,16 @@ export default async function PlacementPage(
       </section>
 
       <div className="mb-7 flex flex-col gap-6">
-        <ViewSwitch
+        <PlacementViewSwitch
           current={view}
           boardHref={placementHref(BASE_PATH, values, { view: "" })}
+          // The batch already chosen here carries into planning, so switching
+          // views keeps the batch a planner is looking at.
+          planningHref={
+            values.batch
+              ? `${PLANNING_PATH}?batch=${encodeURIComponent(values.batch)}`
+              : PLANNING_PATH
+          }
           listHref={placementHref(BASE_PATH, values, { view: "list" })}
         />
         <PlacementToolbar

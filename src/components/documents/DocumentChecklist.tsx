@@ -1,13 +1,15 @@
 "use client";
 
-import { RefreshCw, RotateCcw } from "lucide-react";
-import { useState, useTransition } from "react";
+import { CheckCheck, RefreshCw, RotateCcw } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
 
 import {
+  markRemainingDocumentsReceivedAction,
   refreshStudentChecklistAction,
   resetStudentDocumentsAction,
 } from "@/lib/documents/actions";
 import type { ChecklistItem } from "@/lib/documents/queries";
+import { isBulkReceiveEligible } from "@/lib/placement/constants";
 
 import DocumentRow from "./DocumentRow";
 
@@ -28,9 +30,11 @@ const TOOL_BUTTON =
  * Statuses only. Nothing here uploads a file: the merged copy of a ready
  * student's documents is the single Final Placement Package below the list.
  *
- * The only bulk action offered is Mark all as Not Reviewed. There is
- * deliberately no bulk "mark everything received" and nothing that touches more
- * than this one student.
+ * Two bulk actions, both confirmed first and both limited to this one student:
+ * Mark all as Not Reviewed, and Mark Remaining as Received for a package a
+ * staff member has already reviewed end to end. Neither replaces the per-row
+ * controls, and Mark Remaining as Received never overwrites a status that
+ * carries a decision.
  */
 export default function DocumentChecklist({
   studentId,
@@ -41,13 +45,33 @@ export default function DocumentChecklist({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
+  const [confirmingReceive, setConfirmingReceive] = useState(false);
+
+  // What Mark Remaining as Received would actually change, so the button and
+  // its confirmation both speak about real rows.
+  const eligibleCount = items.filter((item) =>
+    isBulkReceiveEligible(item.document.status),
+  ).length;
+
+  // Escape closes the confirmation, the same as every other dialog in the app.
+  useEffect(() => {
+    if (!confirmingReceive) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setConfirmingReceive(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [confirmingReceive]);
 
   function run(work: () => Promise<{ error: string | null }>) {
     setError(null);
     startTransition(async () => {
       const result = await work();
       setError(result.error);
-      if (!result.error) setConfirmingReset(false);
+      if (!result.error) {
+        setConfirmingReset(false);
+        setConfirmingReceive(false);
+      }
     });
   }
 
@@ -108,17 +132,93 @@ export default function DocumentChecklist({
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmingReset(true)}
-              className={TOOL_BUTTON}
-            >
-              <RotateCcw size={20} aria-hidden="true" />
-              Mark all as Not Reviewed
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              {/*
+                Hidden rather than disabled when nothing is eligible: an offer
+                to change nothing is only confusing.
+              */}
+              {eligibleCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingReceive(true)}
+                  className={TOOL_BUTTON}
+                >
+                  <CheckCheck size={20} aria-hidden="true" />
+                  Mark Remaining as Received
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setConfirmingReset(true)}
+                className={TOOL_BUTTON}
+              >
+                <RotateCcw size={20} aria-hidden="true" />
+                Mark all as Not Reviewed
+              </button>
+            </div>
           )
         ) : null}
       </div>
+
+      {canManage && confirmingReceive && eligibleCount > 0 ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Cancel"
+            onClick={() => setConfirmingReceive(false)}
+            className="absolute inset-0 bg-ink/40"
+          />
+
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-receive-heading"
+            className="relative w-full max-w-lg rounded-3xl border border-line bg-surface p-7 shadow-lg"
+          >
+            <h2
+              id="bulk-receive-heading"
+              className="text-[24px] font-semibold leading-tight tracking-tight text-ink"
+            >
+              Mark remaining requirements as received?
+            </h2>
+            <p className="mt-3 text-[17px] text-ink">
+              This will mark {eligibleCount}{" "}
+              {eligibleCount === 1 ? "requirement" : "requirements"} that
+              {eligibleCount === 1 ? " is" : " are"} Not Reviewed or Requested
+              as Received.
+            </p>
+            <p className="mt-2 text-[16px] text-ink-muted">
+              Requirements already marked Received, Needs Update, or N/A will
+              not be changed.
+            </p>
+
+            <div className="mt-7 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setConfirmingReceive(false)}
+                className={TOOL_BUTTON}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  run(() =>
+                    markRemainingDocumentsReceivedAction({ studentId }),
+                  )
+                }
+                className="rounded-2xl bg-brand px-5 py-3.5 text-[16px] font-semibold text-white transition-colors hover:bg-brand-strong disabled:opacity-60"
+              >
+                {pending
+                  ? "Working..."
+                  : `Mark ${eligibleCount} as Received`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {error ? (
         <p
