@@ -5,6 +5,7 @@ import BatchCard, { ReturningCard } from "@/components/students/BatchCard";
 import { StudentList } from "@/components/students/StudentRow";
 import SummaryBlock from "@/components/students/SummaryBlock";
 import StudentToolbar from "@/components/students/StudentToolbar";
+import { listStudentReadiness } from "@/lib/documents/queries";
 import { studentCountLabel } from "@/lib/format";
 import {
   hasActiveFilters,
@@ -25,10 +26,11 @@ export default async function StudentsPage(props: PageProps<"/students">) {
   const searchParams = await props.searchParams;
   const values = toolbarValuesFrom(searchParams);
 
-  const [batches, counts, students] = await Promise.all([
+  const [batches, counts, students, readinessByStudent] = await Promise.all([
     listBatches(),
     getStudentCounts(),
     listStudents(studentFiltersFrom(values)),
+    listStudentReadiness(),
   ]);
 
   const activeBatches = batches.filter((batch) => batch.status === "active");
@@ -142,6 +144,7 @@ export default async function StudentsPage(props: PageProps<"/students">) {
 
         <StudentList
           students={students}
+          readinessByStudent={readinessByStudent}
           emptyMessage={
             filtered
               ? "No students match this search. Try clearing the filters."

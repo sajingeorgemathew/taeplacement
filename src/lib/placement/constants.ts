@@ -47,6 +47,54 @@ export const DOCUMENT_STATUS_LABELS: Record<DocumentStatus, string> = {
   ready: "Ready",
 };
 
+/**
+ * Detailed placement document checklist statuses.
+ *
+ * These live on student_placement_documents, one row per student per
+ * requirement. students.document_status is the derived summary of them and only
+ * ever holds not_reviewed / pending / ready.
+ */
+export const PLACEMENT_DOCUMENT_STATUSES = [
+  "not_reviewed",
+  "requested",
+  "received",
+  "needs_update",
+  "not_applicable",
+] as const;
+
+export type PlacementDocumentStatus =
+  (typeof PLACEMENT_DOCUMENT_STATUSES)[number];
+
+export const PLACEMENT_DOCUMENT_STATUS_LABELS: Record<
+  PlacementDocumentStatus,
+  string
+> = {
+  not_reviewed: "Not Reviewed",
+  requested: "Requested",
+  received: "Received",
+  needs_update: "Needs Update",
+  not_applicable: "N/A",
+};
+
+/** Received and N/A both count as ready for the readiness total. */
+export const READY_DOCUMENT_STATUSES: readonly PlacementDocumentStatus[] = [
+  "received",
+  "not_applicable",
+];
+
+export function isPlacementDocumentStatus(
+  value: unknown,
+): value is PlacementDocumentStatus {
+  return (
+    typeof value === "string" &&
+    PLACEMENT_DOCUMENT_STATUSES.includes(value as PlacementDocumentStatus)
+  );
+}
+
+export function isDocumentReady(status: PlacementDocumentStatus): boolean {
+  return READY_DOCUMENT_STATUSES.includes(status);
+}
+
 /** Visual tone used by status pills and summary blocks. */
 export type Tone = "info" | "ready" | "attention" | "neutral";
 
@@ -64,6 +112,21 @@ export const DOCUMENT_STATUS_TONES: Record<DocumentStatus, Tone> = {
   not_reviewed: "attention",
   pending: "info",
   ready: "ready",
+};
+
+/**
+ * Green for ready, soft coral for anything the student still owes us, blue for
+ * a requirement that simply does not apply, grey until someone looks at it.
+ */
+export const PLACEMENT_DOCUMENT_STATUS_TONES: Record<
+  PlacementDocumentStatus,
+  Tone
+> = {
+  not_reviewed: "neutral",
+  requested: "attention",
+  received: "ready",
+  needs_update: "attention",
+  not_applicable: "info",
 };
 
 /**

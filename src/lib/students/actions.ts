@@ -78,10 +78,15 @@ export async function updateStudentAction(
     };
   }
 
+  // document_status is derived from the placement document checklist, so an
+  // edit here must never overwrite it.
+  const changes: Partial<typeof parsed.data> = { ...parsed.data };
+  delete changes.document_status;
+
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase
     .from("students")
-    .update(parsed.data)
+    .update(changes)
     .eq("id", studentId);
 
   if (error) {

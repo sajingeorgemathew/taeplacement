@@ -53,6 +53,21 @@ export function isAdmin(session: StaffSession | null): boolean {
 }
 
 /**
+ * Who may change placement documents.
+ *
+ * Management can read student readiness but does not update statuses or touch
+ * files. This mirrors public.can_manage_documents() in the database, which is
+ * the policy that actually enforces it.
+ */
+export function canManageDocuments(session: StaffSession | null): boolean {
+  const role = session?.profile?.role;
+  return Boolean(
+    session?.profile?.is_active &&
+      (role === "admin" || role === "placement_manager"),
+  );
+}
+
+/**
  * Guard for pages and actions that read or write student data.
  * Redirects to /login when there is no session and stops the request when the
  * staff account has not been activated.

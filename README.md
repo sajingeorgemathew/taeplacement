@@ -38,31 +38,35 @@ The product rules that govern all of this work live in
 
 ## Current status
 
-The Students module is real and database backed. Everything else is still the
-foundation shell.
+The Students and Placement Documents modules are real and database backed.
+Everything else is still the foundation shell.
 
 What works today:
 
 - staff email and password sign in at `/login`, with no public registration
 - every staff route requires a signed in, admin activated account
-- Supabase Postgres with Row Level Security on profiles, batches, students, and
-  student notes
+- Supabase Postgres with Row Level Security on profiles, batches, students,
+  student notes, document requirements, student documents, and placement
+  packages
 - Students page with live counts, batch cards, search, and filters
 - batch pages, Previous / Returning students, and single student pages
 - Add Student, Edit Student, and internal student notes
-- Batch Management in Admin
+- the placement document checklist, with readiness derived from it
+- one merged Final Placement Package per student, uploaded to a non-public
+  Supabase Storage bucket
+- Batch Management and Document Requirements in Admin
 - a one-time local Excel migration script
 
 What is deliberately not built yet:
 
-- the detailed placement document checklist
 - placement partner / LTC accounts
 - placement assignment, partner matching, and check-ins
 - notifications
 - Dashboard redesign
 
-The Students module is documented in
-[docs/product/students-and-batches.md](docs/product/students-and-batches.md).
+The modules are documented in
+[docs/product/students-and-batches.md](docs/product/students-and-batches.md) and
+[docs/product/student-placement-documents.md](docs/product/student-placement-documents.md).
 
 ## Local development
 
@@ -78,11 +82,27 @@ npm run lint     # ESLint
 ### Supabase setup
 
 1. Create a Supabase project.
-2. Run `supabase/migrations/0001_placement_core.sql` in the SQL editor.
+2. Run the migrations in `supabase/migrations/` in order in the SQL editor:
+   `0001_placement_core.sql`, `0002_placement_documents.sql`, then
+   `0003_final_placement_package.sql`.
 3. Put the project URL and anon key in `.env.local`.
 4. Create the first staff user in the Supabase Auth dashboard, then activate
    their profile (see
    [docs/product/students-and-batches.md](docs/product/students-and-batches.md)).
+
+`0002_placement_documents.sql` also creates the private `placement-documents`
+storage bucket and its policies, and `0003_final_placement_package.sql` raises
+its limit to 25 MB for the merged package. If your SQL role cannot write to the
+`storage` schema either migration raises a warning instead of failing; in that
+case create the bucket in the Storage dashboard as **private**, 25 MB,
+PDF/JPEG/PNG only, and add the four policies from the bottom of
+`0002_placement_documents.sql`.
+
+The 13 placement requirements are a readiness checklist and store no files. The
+only file this application stores is one merged Final Placement Package per
+student, which an admin prepares outside TAE Placement. It is private: it lives
+only in that bucket, is read through short-lived signed URLs, and is never
+stored in `public/` or committed to Git.
 
 `SUPABASE_SERVICE_ROLE_KEY` is only needed for the one-time student migration
 script. It bypasses Row Level Security, so it stays in `.env.local` and is never
@@ -90,8 +110,8 @@ exposed to the browser.
 
 ## Current ticket
 
-PLACEMENT-01 - Students, Batches and Initial Migration
-([docs/tickets/PLACEMENT-01-students.md](docs/tickets/PLACEMENT-01-students.md))
+PLACEMENT-02 - Student Placement Documents
+([docs/tickets/PLACEMENT-02-student-documents.md](docs/tickets/PLACEMENT-02-student-documents.md))
 
 ## Privacy warning
 

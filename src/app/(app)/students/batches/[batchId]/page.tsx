@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { StudentList } from "@/components/students/StudentRow";
 import StudentToolbar from "@/components/students/StudentToolbar";
 import BackLink from "@/components/ui/BackLink";
+import { listStudentReadiness } from "@/lib/documents/queries";
 import { formatDate, studentCountLabel } from "@/lib/format";
 import {
   NEEDS_PLACEMENT_STATUSES,
@@ -25,10 +26,10 @@ export default async function BatchPage(
   const batch = await getBatch(batchId);
   if (!batch) notFound();
 
-  const students = await listStudents({
-    ...studentFiltersFrom(values),
-    batchId: batch.id,
-  });
+  const [students, readinessByStudent] = await Promise.all([
+    listStudents({ ...studentFiltersFrom(values), batchId: batch.id }),
+    listStudentReadiness(),
+  ]);
 
   const needingPlacement = students.filter((student) =>
     NEEDS_PLACEMENT_STATUSES.includes(student.placement_status),
@@ -105,6 +106,7 @@ export default async function BatchPage(
 
         <StudentList
           students={students}
+          readinessByStudent={readinessByStudent}
           emptyMessage="No students in this batch match the current search."
         />
       </section>

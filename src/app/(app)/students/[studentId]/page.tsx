@@ -1,18 +1,21 @@
-import { Mail, MapPin, Pencil, Phone } from "lucide-react";
+import { FileText, Mail, MapPin, Pencil, Phone } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import ReadinessSummary from "@/components/documents/ReadinessSummary";
 import NotesPanel from "@/components/students/NotesPanel";
 import BackLink from "@/components/ui/BackLink";
 import {
   DocumentStatusPill,
+  PlacementDocumentStatusPill,
   PlacementStatusPill,
 } from "@/components/ui/StatusPill";
-import { studentFullName, studentInitials } from "@/lib/format";
 import {
-  DOCUMENT_STATUS_LABELS,
-  PLACEMENT_STATUS_LABELS,
-} from "@/lib/placement/constants";
+  getStudentChecklist,
+  getStudentReadiness,
+} from "@/lib/documents/queries";
+import { studentFullName, studentInitials } from "@/lib/format";
+import { PLACEMENT_STATUS_LABELS } from "@/lib/placement/constants";
 import { locationLabel } from "@/lib/students/address";
 import { getStudent, listStudentNotes } from "@/lib/students/queries";
 import type { StudentListItem } from "@/lib/students/queries";
@@ -20,6 +23,9 @@ import type { StudentListItem } from "@/lib/students/queries";
 export const metadata = {
   title: "Student",
 };
+
+/** Keep the student page calm: the full checklist lives on its own page. */
+const INCOMPLETE_PREVIEW = 4;
 
 /** The logical parent route for this student, used by the Back action. */
 function parentFor(student: StudentListItem): { href: string; label: string } {
@@ -92,7 +98,17 @@ export default async function StudentPage(
   const student = await getStudent(studentId);
   if (!student) notFound();
 
-  const notes = await listStudentNotes(student.id);
+  const [notes, readiness, checklist] = await Promise.all([
+    listStudentNotes(student.id),
+    getStudentReadiness(student.id),
+    getStudentChecklist(student.id),
+  ]);
+
+  const incomplete = checklist.filter(
+    (item) =>
+      item.document.status !== "received" &&
+      item.document.status !== "not_applicable",
+  );
 
   const fullName = studentFullName(student);
   const parent = parentFor(student);
@@ -206,21 +222,45 @@ export default async function StudentPage(
         </Section>
 
         <div className="flex flex-col gap-6">
-          <Section
-            title="Placement Readiness"
-            description="Detailed placement documents will be managed in the Documents module."
-          >
-            <div className="rounded-2xl border border-line bg-surface-muted p-6">
-              <p className="text-[15px] text-ink-muted">Document status</p>
-              <p className="mt-2 text-[24px] font-semibold text-ink">
-                {DOCUMENT_STATUS_LABELS[student.document_status]}
-              </p>
-              <p className="mt-3 text-[16px] text-ink-muted">
-                {student.document_status === "ready"
-                  ? "Documents have been reviewed and cleared."
-                  : "Update this from Edit Student as documents are checked."}
-              </p>
-            </div>
+          <Section title="Placement Documents">
+            <ReadinessSummary
+              readiness={readiness}
+              documentStatus={student.document_status}
+            />
+
+            {incomplete.length > 0 ? (
+              <div className="mt-6 rounded-2xl border border-line bg-surface-muted p-6">
+                <p className="text-[15px] text-ink-muted">Still outstanding</p>
+                <ul className="mt-3 flex flex-col gap-2">
+                  {incomplete.slice(0, INCOMPLETE_PREVIEW).map((item) => (
+                    <li
+                      key={item.document.id}
+                      className="flex flex-wrap items-center justify-between gap-3 text-[16px] text-ink"
+                    >
+                      <span className="min-w-0 break-words">
+                        {item.requirement.short_name ?? item.requirement.name}
+                      </span>
+                      <PlacementDocumentStatusPill
+                        status={item.document.status}
+                      />
+                    </li>
+                  ))}
+                </ul>
+                {incomplete.length > INCOMPLETE_PREVIEW ? (
+                  <p className="mt-3 text-[16px] text-ink-muted">
+                    and {incomplete.length - INCOMPLETE_PREVIEW} more
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <Link
+              href={`/students/${student.id}/documents`}
+              className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-brand px-6 py-4 text-[17px] font-semibold text-white transition-colors hover:bg-brand-strong"
+            >
+              <FileText size={20} aria-hidden="true" />
+              View Documents
+            </Link>
           </Section>
 
           <Section
