@@ -12,10 +12,17 @@
   --ink: #121820;
   --ink-muted: #5b6574;
 
-  /* One restrained blue accent. */
-  --brand: #1d4ed8;
-  --brand-strong: #1e40af;
-  --brand-soft: #eef3ff;
+  /* Toronto Academy of Education brand.
+     Navy and tan are taken from the academy logo. These are IDENTITY colours:
+     the app shell, the active navigation item, and primary emphasis. They are
+     deliberately separate from the operational colours below, so retuning the
+     brand can never change what green, amber, or coral MEAN on a board. */
+  --brand: #1d3461;
+  --brand-strong: #152848;
+  --brand-soft: #eef1f7;
+  --brand-line: #ccd5e4;
+  /* The tan from the logo. A thin accent only, never a text colour. */
+  --brand-accent: #cbbea4;
 
   /* Operational status colours.
      Blue informational, green ready/complete, soft coral needs attention. */
@@ -54,6 +61,8 @@
   --color-brand: var(--brand);
   --color-brand-strong: var(--brand-strong);
   --color-brand-soft: var(--brand-soft);
+  --color-brand-line: var(--brand-line);
+  --color-brand-accent: var(--brand-accent);
 
   --color-info: var(--info);
   --color-info-ink: var(--info-ink);

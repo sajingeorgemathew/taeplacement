@@ -1,21 +1,20 @@
-import { Building2, ClipboardList, Users } from "lucide-react";
+import {
+  Building2,
+  CalendarClock,
+  ClipboardList,
+  PhoneCall,
+  UserCheck,
+  Users,
+} from "lucide-react";
 
 import PageHeader from "@/components/ui/PageHeader";
 import QuickAccessCard from "@/components/ui/QuickAccessCard";
 import StatCard from "@/components/ui/StatCard";
+import { getDashboardSummary } from "@/lib/dashboard/queries";
 
 export const metadata = {
   title: "Placement Dashboard",
 };
-
-/**
- * Placeholder values only. There is no database yet, so no number is invented.
- */
-const summary = [
-  { label: "Students Needing Placement", value: "-" },
-  { label: "Active Placements", value: "-" },
-  { label: "Follow-ups Due", value: "-" },
-];
 
 const quickAccess = [
   {
@@ -38,22 +37,49 @@ const quickAccess = [
   },
 ];
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const summary = await getDashboardSummary();
+
   return (
     <>
       <PageHeader
         title="Placement Dashboard"
-        description="A simple view of student placement operations and what needs attention."
+        description="A simple view of placement operations and what needs attention."
       />
 
       <section aria-labelledby="summary-heading" className="mb-12">
         <h2 id="summary-heading" className="sr-only">
           Summary
         </h2>
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {summary.map((item) => (
-            <StatCard key={item.label} label={item.label} value={item.value} />
-          ))}
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            label="Ready for Placement"
+            value={summary.readyForPlacement}
+            tone="ready"
+            icon={UserCheck}
+            href="/placement"
+          />
+          <StatCard
+            label="Awaiting Start"
+            value={summary.awaitingStart}
+            tone="info"
+            icon={CalendarClock}
+            href="/placement"
+          />
+          <StatCard
+            label="On Placement"
+            value={summary.onPlacement}
+            tone="info"
+            icon={ClipboardList}
+            href="/placement"
+          />
+          <StatCard
+            label="Partner Follow-ups Due"
+            value={summary.followUpsDue}
+            tone="attention"
+            icon={PhoneCall}
+            href="/placement-partners"
+          />
         </div>
       </section>
 
