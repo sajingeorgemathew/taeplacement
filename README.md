@@ -39,8 +39,8 @@ The product rules that govern all of this work live in
 ## Current status
 
 The Students, Placement Documents, Placement Partners, and Placement modules are
-real and database backed, and Placement now includes Batch Planning. Everything
-else is still the foundation shell.
+real and database backed, and Placement now includes Batch Planning and the
+active placement workspace. Everything else is still the foundation shell.
 
 What works today:
 
@@ -62,6 +62,11 @@ What works today:
 - the Placement module: the Placement Board and List View, Find Placement,
   student-to-partner assignment with planned dates, cancellation that keeps the
   record, On Hold, placement history, and current placements on a partner
+- the active placement workspace: an On Placement column on the Board, computed
+  Starting Today / Start Date Passed / Ends Today / Planned End Date Passed
+  indicators, Start Placement and Finish Placement as controlled actions from a
+  card or from the student, and multi-partner placement history with credited
+  hours per segment
 - Batch Planning: a batch selector, live batch summary, geographic Area cards
   with student and partner-availability breakdowns, Unmapped City and City
   Missing exceptions, and an Area drill-down showing the students in an Area
@@ -72,8 +77,7 @@ What works today:
 
 What is deliberately not built yet:
 
-- check-ins, attendance, placement hours, and evaluations
-- the placement start and completion workflow
+- check-ins, attendance, timesheets, weekly hour tracking, and evaluations
 - placement capacity, slots, and distance
 - notifications
 - Dashboard redesign
@@ -83,8 +87,9 @@ The modules are documented in
 [docs/product/student-placement-documents.md](docs/product/student-placement-documents.md),
 [docs/product/placement-partners.md](docs/product/placement-partners.md),
 [docs/product/student-placement-assignment.md](docs/product/student-placement-assignment.md),
+[docs/product/batch-placement-planning.md](docs/product/batch-placement-planning.md),
 and
-[docs/product/batch-placement-planning.md](docs/product/batch-placement-planning.md).
+[docs/product/active-placement.md](docs/product/active-placement.md).
 
 ## Local development
 
@@ -150,6 +155,15 @@ cancelled; a `started` one can only be finished, as `completed` or
 `ended_early`. A student who was actually at a partner was never "cancelled",
 and their credited hours have to land somewhere.
 
+The active placement workspace is built entirely on this migration and **adds no
+schema of its own**. On Placement is `students.placement_status =
+'placement_started'` with the student's live `student_placements` row at `status
+= 'started'`; there is no second definition anywhere. Starting Today, Start Date
+Passed, Ends Today, Ends in N days, and Planned End Date Passed are computed
+from the dates a placement already has, at the moment a page renders. They are
+observations, never statuses, never fields, and nothing acts on them: **a
+placement never starts because its planned date arrived.**
+
 `0007_batch_placement_planning.sql` is additive in the same way. It adds one
 table, `placement_area_cities`, which maps a normalized student city to one
 operational placement area, plus a guard that stops an area cities point at from
@@ -174,8 +188,8 @@ stays in `.env.local` and is never exposed to the browser.
 
 ## Current ticket
 
-PLACEMENT-05A - Batch Placement Planning and City-to-Area Mapping
-([docs/tickets/PLACEMENT-05A-batch-planning.md](docs/tickets/PLACEMENT-05A-batch-planning.md))
+PLACEMENT-05B - Active Placement / On Placement Workspace
+([docs/tickets/PLACEMENT-05B-active-placement.md](docs/tickets/PLACEMENT-05B-active-placement.md))
 
 ## Privacy warning
 

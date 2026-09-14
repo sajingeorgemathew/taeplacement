@@ -1,11 +1,18 @@
-import { Building2, CalendarClock, ChevronRight, MapPin } from "lucide-react";
+import {
+  Building2,
+  CalendarCheck,
+  CalendarClock,
+  ChevronRight,
+  MapPin,
+} from "lucide-react";
 import Link from "next/link";
 
-import {
+import StatusPill, {
   DocumentStatusPill,
   PlacementStatusPill,
 } from "@/components/ui/StatusPill";
 import { formatShortDate, studentFullName } from "@/lib/format";
+import { placementAttention, todayKey } from "@/lib/placement/attention";
 import type { PlacementBoardStudent } from "@/lib/placement/queries";
 import { locationLabel } from "@/lib/students/address";
 
@@ -39,13 +46,24 @@ function ReadinessText({ student }: { student: PlacementBoardStudent }) {
 function PlacementRow({
   student,
   action,
+  today,
 }: {
   student: PlacementBoardStudent;
   /** Optional extra control rendered under the row, outside its link. */
   action?: React.ReactNode;
+  /** Today as "YYYY-MM-DD", so every row reads its dates against one day. */
+  today: string;
 }) {
   const placement = student.currentPlacement;
-  const plannedStart = formatShortDate(placement?.planned_start_date);
+  const started = placement?.status === "started";
+  // A started placement is answering a different question from an assigned one:
+  // when did they begin, and when should it end. Not when were they meant to
+  // start.
+  const startDate = formatShortDate(
+    started ? placement?.actual_start_date : placement?.planned_start_date,
+  );
+  const plannedEnd = formatShortDate(placement?.planned_end_date);
+  const attention = placement ? placementAttention(placement, today) : null;
 
   return (
     <li>
@@ -78,10 +96,20 @@ function PlacementRow({
                 <Building2 size={17} aria-hidden="true" />
                 {placement.partner.name}
               </span>
-              {plannedStart ? (
+              {startDate ? (
+                <span className="inline-flex items-center gap-1.5">
+                  {started ? (
+                    <CalendarCheck size={17} aria-hidden="true" />
+                  ) : (
+                    <CalendarClock size={17} aria-hidden="true" />
+                  )}
+                  {started ? `Started ${startDate}` : `Starts ${startDate}`}
+                </span>
+              ) : null}
+              {plannedEnd ? (
                 <span className="inline-flex items-center gap-1.5">
                   <CalendarClock size={17} aria-hidden="true" />
-                  Starts {plannedStart}
+                  Planned end {plannedEnd}
                 </span>
               ) : null}
             </p>
@@ -97,6 +125,9 @@ function PlacementRow({
 
         <div className="flex flex-wrap items-center gap-2 lg:w-[24rem] lg:shrink-0">
           <PlacementStatusPill status={student.placement_status} />
+          {attention ? (
+            <StatusPill label={attention.label} tone={attention.tone} />
+          ) : null}
           <DocumentStatusPill status={student.document_status} />
           <ReadinessText student={student} />
         </div>
@@ -115,9 +146,15 @@ export default function PlacementList({
   students,
   emptyMessage,
   renderAction,
+  today = todayKey(),
 }: {
   students: PlacementBoardStudent[];
   emptyMessage: string;
+  /**
+   * Today as "YYYY-MM-DD". Defaults to the server's own day, which is all a
+   * plain list needs; the board passes its one shared value in.
+   */
+  today?: string;
   /**
    * Optional per-row control, rendered OUTSIDE the row's link so nothing is
    * nested inside an anchor. Batch Planning uses it to point a ready student at
@@ -141,6 +178,7 @@ export default function PlacementList({
           key={student.id}
           student={student}
           action={renderAction?.(student)}
+          today={today}
         />
       ))}
     </ul>

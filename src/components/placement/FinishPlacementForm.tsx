@@ -4,8 +4,11 @@ import { CheckCircle2, Flag } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import ActionDialog from "@/components/ui/ActionDialog";
+import { formatDate } from "@/lib/format";
 import { emptyFormState, type FormState } from "@/lib/forms/state";
 import { finishPlacementAction } from "@/lib/placement/actions";
+import { todayKey } from "@/lib/placement/attention";
 import {
   PLACEMENT_OUTCOMES,
   PLACEMENT_OUTCOME_DESCRIPTIONS,
@@ -15,14 +18,6 @@ import {
 
 const INPUT_CLASSES =
   "h-14 w-full rounded-2xl border border-line bg-surface px-5 text-[17px] text-ink outline-none focus:border-brand";
-
-/** Today as "YYYY-MM-DD" in the reader's own day, never shifted by a timezone. */
-function today(): string {
-  const now = new Date();
-  const month = `${now.getMonth() + 1}`.padStart(2, "0");
-  const day = `${now.getDate()}`.padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-}
 
 /**
  * Finish one placement the student actually started.
@@ -44,11 +39,23 @@ function today(): string {
 export default function FinishPlacementForm({
   placementId,
   studentName,
+  studentNumber,
   partnerName,
+  actualStartDate = null,
+  plannedEndDate = null,
+  presentation = "inline",
+  size = "large",
 }: {
   placementId: string;
   studentName: string;
+  studentNumber?: string | null;
   partnerName: string;
+  /** Shown as context. The day the placement being finished actually began. */
+  actualStartDate?: string | null;
+  plannedEndDate?: string | null;
+  /** Inline on a detail page, or in a dialog from a board card. */
+  presentation?: "inline" | "dialog";
+  size?: "large" | "compact";
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -56,6 +63,11 @@ export default function FinishPlacementForm({
   const [completes, setCompletes] = useState<"yes" | "no" | "">("");
   const [state, setState] = useState<FormState>(emptyFormState);
   const [pending, startTransition] = useTransition();
+
+  function close() {
+    setOpen(false);
+    setState(emptyFormState);
+  }
 
   /**
    * Submitted by hand rather than through useActionState, because finishing a
@@ -71,35 +83,72 @@ export default function FinishPlacementForm({
       setState(result);
       if (result.error || Object.keys(result.fieldErrors).length > 0) return;
 
-      setOpen(false);
+      close();
       router.refresh();
     });
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 rounded-2xl border border-line px-6 py-4 text-[17px] font-medium text-ink transition-colors hover:border-brand hover:bg-brand-soft hover:text-brand-strong"
-      >
-        <Flag size={20} aria-hidden="true" />
-        Finish Placement
-      </button>
-    );
-  }
-
-  return (
-    <form
-      onSubmit={submit}
-      className="rounded-2xl border border-line bg-surface-muted p-6"
+  const trigger = (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className={
+        size === "compact"
+          ? "inline-flex items-center gap-1.5 rounded-xl border border-ready-line bg-ready-soft px-3.5 py-2.5 text-[15px] font-semibold text-ready-ink transition-colors hover:bg-white"
+          : "inline-flex items-center gap-2 rounded-2xl border border-line px-6 py-4 text-[17px] font-medium text-ink transition-colors hover:border-brand hover:bg-brand-soft hover:text-brand-strong"
+      }
     >
+      <Flag size={size === "compact" ? 18 : 20} aria-hidden="true" />
+      Finish Placement
+    </button>
+  );
+
+  const body = (
+    <form onSubmit={submit}>
       <input type="hidden" name="placement_id" value={placementId} />
 
-      <h3 className="text-[20px] font-semibold text-ink">
-        Finish {studentName}&apos;s placement at {partnerName}
-      </h3>
-      <p className="mt-2 text-[16px] text-ink-muted">
+      {presentation === "inline" ? (
+        <h3 className="text-[20px] font-semibold text-ink">
+          Finish {studentName}&apos;s placement at {partnerName}
+        </h3>
+      ) : null}
+
+      {/* Which placement is being finished, said plainly. A student may have had
+          more than one, and only one of them is running now. */}
+      <dl className="mt-3 grid gap-3 rounded-2xl border border-line bg-surface px-5 py-4 sm:grid-cols-2">
+        <div>
+          <dt className="text-[15px] text-ink-muted">Student</dt>
+          <dd className="mt-0.5 break-words text-[17px] font-medium text-ink">
+            {studentName}
+            {studentNumber ? (
+              <span className="font-normal text-ink-muted">
+                {" "}
+                - {studentNumber}
+              </span>
+            ) : null}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[15px] text-ink-muted">Placement Partner</dt>
+          <dd className="mt-0.5 break-words text-[17px] font-medium text-ink">
+            {partnerName}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[15px] text-ink-muted">Actual Start</dt>
+          <dd className="mt-0.5 text-[17px] text-ink">
+            {formatDate(actualStartDate) ?? "Not recorded"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[15px] text-ink-muted">Planned End</dt>
+          <dd className="mt-0.5 text-[17px] text-ink">
+            {formatDate(plannedEndDate) ?? "Not recorded"}
+          </dd>
+        </div>
+      </dl>
+
+      <p className="mt-4 text-[16px] text-ink-muted">
         The record is kept as history, with its dates, its credited hours, and
         its note. Nothing is deleted.
       </p>
@@ -166,7 +215,7 @@ export default function FinishPlacementForm({
             id="actual_end_date"
             name="actual_end_date"
             type="date"
-            defaultValue={today()}
+            defaultValue={todayKey()}
             className={INPUT_CLASSES}
           />
           {state.fieldErrors.actual_end_date ? (
@@ -319,12 +368,35 @@ export default function FinishPlacementForm({
         </button>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={close}
           className="rounded-2xl border border-line bg-surface px-6 py-4 text-[17px] font-medium text-ink transition-colors hover:bg-surface-muted"
         >
           Keep the placement
         </button>
       </div>
     </form>
+  );
+
+  if (presentation === "inline") {
+    if (!open) return trigger;
+    return (
+      <div className="rounded-2xl border border-line bg-surface-muted p-6">
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {trigger}
+      <ActionDialog
+        open={open}
+        onClose={close}
+        title="Finish Placement"
+        subtitle={`${studentName} at ${partnerName}`}
+      >
+        {body}
+      </ActionDialog>
+    </>
   );
 }
