@@ -31,12 +31,41 @@ function outcomeLine(placement: PartnerPlacement): string | null {
   return placement.completion_note;
 }
 
+/**
+ * The one line of dates under a student's name.
+ *
+ * A live placement is answering an operational question - when does this
+ * student start, or when did they, and when should they finish - so a started
+ * placement leads with its ACTUAL start and its planned end. A finished one
+ * leads with the day it ended, because that is what history is for.
+ */
+function dateLine(placement: PartnerPlacement): string | null {
+  if (placement.status === "started") {
+    const startedOn = formatDate(placement.actual_start_date);
+    const plannedEnd = formatDate(placement.planned_end_date);
+    const parts = [
+      startedOn ? `started ${startedOn}` : "start date not recorded",
+      plannedEnd ? `planned end ${plannedEnd}` : null,
+    ].filter(Boolean);
+    return parts.join(" - ");
+  }
+
+  if (placement.status === "assigned") {
+    const plannedStart = formatDate(placement.planned_start_date);
+    return plannedStart
+      ? `planned start ${plannedStart}`
+      : "no planned start date yet";
+  }
+
+  const endedOn = formatDate(placement.actual_end_date);
+  return endedOn ? `ended ${endedOn}` : null;
+}
+
 function PlacementRow({ placement }: { placement: PartnerPlacement }) {
   const student = placement.student;
-  const plannedStart = formatDate(placement.planned_start_date);
-  const endedOn = formatDate(placement.actual_end_date);
   const hours = formatCreditedHours(placement.credited_hours);
   const outcome = outcomeLine(placement);
+  const dates = dateLine(placement);
 
   if (!student) {
     return (
@@ -65,11 +94,7 @@ function PlacementRow({ placement }: { placement: PartnerPlacement }) {
           </div>
           <p className="mt-1 text-[15px] text-ink-muted">
             {student.batch?.name ?? "No batch assigned"}
-            {endedOn
-              ? ` - ended ${endedOn}`
-              : plannedStart
-                ? ` - planned start ${plannedStart}`
-                : ""}
+            {dates ? ` - ${dates}` : ""}
           </p>
           {outcome ? (
             <p className="mt-1 break-words text-[15px] text-ink-muted">
@@ -121,7 +146,7 @@ export default function PartnerPlacementsSection({
         <p className="mb-4 text-[16px] text-ink-muted">
           {current.length === 0
             ? "No students are placed here right now."
-            : `${studentCountLabel(current.length)} placed here right now.`}
+            : `${studentCountLabel(current.length)} placed here right now, whether they are waiting to start or already on placement.`}
         </p>
 
         {current.length === 0 ? (

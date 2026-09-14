@@ -1,11 +1,10 @@
 import {
   Building2,
   CheckCircle2,
-  ChevronRight,
+  ClipboardList,
   PauseCircle,
   UserCheck,
 } from "lucide-react";
-import Link from "next/link";
 
 import PlacementBoard from "@/components/placement/PlacementBoard";
 import PlacementList from "@/components/placement/PlacementList";
@@ -13,8 +12,9 @@ import PlacementToolbar from "@/components/placement/PlacementToolbar";
 import PlacementViewSwitch from "@/components/placement/PlacementViewSwitch";
 import SummaryBlock from "@/components/ui/SummaryBlock";
 import { canManagePlacements, getStaffSession } from "@/lib/auth/session";
-import { formatShortDate, studentCountLabel, studentFullName } from "@/lib/format";
+import { studentCountLabel } from "@/lib/format";
 import { listPartners, listPlacementAreas } from "@/lib/partners/queries";
+import { todayKey } from "@/lib/placement/attention";
 import {
   getPlacementCounts,
   listPlacementStudents,
@@ -55,14 +55,9 @@ export default async function PlacementPage(
   const canManage = canManagePlacements(session);
   const filtered = hasActivePlacementFilters(values);
   const activeAreas = areas.filter((area) => area.is_active);
-
-  // Students whose placement has already STARTED are kept off the working
-  // board: they are not waiting on anything staff can do here, and the start /
-  // check-in workflow is PLACEMENT-05. They get a small summary of their own so
-  // they are still visible and reachable.
-  const started = students.filter(
-    (student) => student.placement_status === "placement_started",
-  );
+  // One today for the whole board, resolved on the server, so every card reads
+  // its planned and actual dates against the same day.
+  const today = todayKey();
 
   return (
     <>
@@ -79,7 +74,7 @@ export default async function PlacementPage(
         <h2 id="placement-summary-heading" className="sr-only">
           Placement summary
         </h2>
-        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <SummaryBlock
             label="Ready for Placement"
             value={counts.readyForPlacement}
@@ -95,6 +90,14 @@ export default async function PlacementPage(
             tone="info"
             icon={Building2}
             href={`${BASE_PATH}?view=list&status=placement_assigned`}
+          />
+          <SummaryBlock
+            label="On Placement"
+            value={counts.started}
+            note="At their partner right now. Finished, never cancelled."
+            tone="ready"
+            icon={ClipboardList}
+            href={`${BASE_PATH}?view=list&status=placement_started`}
           />
           <SummaryBlock
             label="On Hold"
@@ -139,71 +142,25 @@ export default async function PlacementPage(
       </div>
 
       {view === "board" ? (
-        <>
-          <section aria-labelledby="placement-board-heading">
-            <h2
-              id="placement-board-heading"
-              className="mb-2 text-[26px] font-semibold tracking-tight text-ink"
-            >
-              Placement Board
-            </h2>
-            <p className="mb-6 text-[17px] text-ink-muted">
-              {filtered
-                ? `Showing ${studentCountLabel(students.length)} for the current search.`
-                : `The five columns staff work in. A student whose placement ends without finishing their requirement comes back here, ready to be placed again. Only a student whose whole requirement is complete leaves the board.`}
-            </p>
+        <section aria-labelledby="placement-board-heading">
+          <h2
+            id="placement-board-heading"
+            className="mb-2 text-[26px] font-semibold tracking-tight text-ink"
+          >
+            Placement Board
+          </h2>
+          <p className="mb-6 text-[17px] text-ink-muted">
+            {filtered
+              ? `Showing ${studentCountLabel(students.length)} for the current search.`
+              : `The six columns staff work in, ending with the students who are at a partner right now. A student whose placement ends without finishing their requirement comes back here, ready to be placed again. Only a student whose whole requirement is complete leaves the board.`}
+          </p>
 
-            <PlacementBoard students={students} canManage={canManage} />
-          </section>
-
-          {started.length > 0 ? (
-            <section
-              aria-labelledby="active-placements-heading"
-              className="mt-10 rounded-3xl border border-line bg-surface p-7 sm:p-8"
-            >
-              <h2
-                id="active-placements-heading"
-                className="text-[24px] font-semibold tracking-tight text-ink"
-              >
-                Placements Already Started
-              </h2>
-              <p className="mt-2 text-[16px] text-ink-muted">
-                {studentCountLabel(started.length)} on placement right now.
-                Finishing one of these - and saying whether it completes the
-                student&apos;s placement requirement - is done on their own
-                placement page.
-              </p>
-
-              <ul className="mt-6 flex flex-col gap-3">
-                {started.map((student) => (
-                  <li key={student.id}>
-                    <Link
-                      href={`/students/${student.id}/placement`}
-                      className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-surface-muted p-5 transition-colors hover:border-brand hover:bg-brand-soft/40"
-                    >
-                      <span className="min-w-0">
-                        <span className="block text-[18px] font-semibold text-ink">
-                          {studentFullName(student)}
-                        </span>
-                        <span className="mt-1 block text-[15px] text-ink-muted">
-                          {student.currentPlacement?.partner?.name ??
-                            "Partner not recorded"}
-                          {student.currentPlacement?.actual_start_date
-                            ? ` - started ${formatShortDate(student.currentPlacement.actual_start_date)}`
-                            : ""}
-                        </span>
-                      </span>
-                      <span className="flex items-center gap-1 text-[16px] font-medium text-brand-strong">
-                        View Placement
-                        <ChevronRight size={20} aria-hidden="true" />
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-        </>
+          <PlacementBoard
+            students={students}
+            canManage={canManage}
+            today={today}
+          />
+        </section>
       ) : (
         <section aria-labelledby="placement-list-heading">
           <h2

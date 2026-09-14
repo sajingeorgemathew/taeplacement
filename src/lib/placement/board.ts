@@ -2,8 +2,9 @@
  * The Placement Board's columns, and the rules about what a drag may do.
  *
  * The board is the operational answer to one question: which student needs a
- * placement, and what has already been assigned. Its five working columns are
- * the five states a student can actually be worked on in.
+ * placement, what has already been assigned, and who is actually out on
+ * placement right now. Its six working columns are the six states a student can
+ * be worked on in.
  *
  * A student whose placement finishes WITHOUT finishing their requirement comes
  * straight back to one of these columns, usually Ready for Placement, so they
@@ -63,6 +64,13 @@ export const PLACEMENT_BOARD_COLUMNS: readonly BoardColumn[] = [
     emptyMessage: "No placement has been assigned yet.",
   },
   {
+    status: "placement_started",
+    label: "On Placement",
+    description: "At their partner right now. Finished, never cancelled.",
+    colorKey: "teal",
+    emptyMessage: "No students are currently on placement.",
+  },
+  {
     status: "on_hold",
     label: "On Hold",
     description: "Paused on purpose. Released by staff, never automatically.",
@@ -74,7 +82,7 @@ export const PLACEMENT_BOARD_COLUMNS: readonly BoardColumn[] = [
 export const BOARD_STATUSES: readonly PlacementStatus[] =
   PLACEMENT_BOARD_COLUMNS.map((column) => column.status);
 
-/** True when a student belongs on one of the five working columns. */
+/** True when a student belongs on one of the six working columns. */
 export function isBoardStatus(status: PlacementStatus): boolean {
   return BOARD_STATUSES.includes(status);
 }
@@ -84,7 +92,7 @@ export function isBoardStatus(status: PlacementStatus): boolean {
  *
  * Placement state is business logic, not a card position, so a drag may never
  * invent a state the database would not agree with. There are exactly three
- * honest outcomes:
+ * honest outcomes, and NONE of them is a lifecycle transition:
  *
  *   hold      pause a student. A controlled action with an optional reason.
  *   release   take a student off hold, back to whatever the facts say.
@@ -115,11 +123,39 @@ export function dropOutcome(
     return { kind: "find" };
   }
 
-  if (from === "placement_assigned" || from === "placement_started") {
+  // The three lifecycle moves, each refused with the action that actually does
+  // it. None of them is a card position: starting a placement is a staff member
+  // saying the student really began, and finishing one has a question attached
+  // that only a staff member can answer.
+  if (from === "placement_assigned" && to === "placement_started") {
     return {
       kind: "refused",
       reason:
-        "This student already has a placement. On their placement page, cancel the assignment if it never started, or finish the placement and say whether it completes their placement requirement. Either way, they come back to the column their documents put them in unless their requirement is complete.",
+        "Starting a placement is a deliberate action, not a drag. Use Start Placement on the card and record the day the student actually began. A placement never starts because its planned date arrived.",
+    };
+  }
+
+  if (from === "placement_started") {
+    return {
+      kind: "refused",
+      reason:
+        "This student is on placement. Use Finish Placement, which records what happened at this partner and asks whether it completes their whole placement requirement. A student who was actually there is finished, never cancelled.",
+    };
+  }
+
+  if (to === "placement_started") {
+    return {
+      kind: "refused",
+      reason:
+        "On Placement means a student who has actually started at a partner. Assign them a placement first, then use Start Placement.",
+    };
+  }
+
+  if (from === "placement_assigned") {
+    return {
+      kind: "refused",
+      reason:
+        "This student already has a placement. On their placement page, cancel the assignment if it never started, or start it and finish it later. Either way, they come back to the column their documents put them in unless their requirement is complete.",
     };
   }
 

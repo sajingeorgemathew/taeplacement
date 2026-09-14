@@ -21,6 +21,7 @@ import {
   formatTimestamp,
   studentFullName,
 } from "@/lib/format";
+import { placementAttention, todayKey } from "@/lib/placement/attention";
 import {
   AVAILABILITY_STATUS_TONES,
   PLACEMENT_RECORD_STATUS_LABELS,
@@ -59,16 +60,48 @@ function Section({
   );
 }
 
-function Detail({ label, value }: { label: string; value: string | null }) {
+function Detail({
+  label,
+  value,
+  emphasis = false,
+}: {
+  label: string;
+  value: string | null;
+  /** The one or two dates that matter most in the state the placement is in. */
+  emphasis?: boolean;
+}) {
   return (
-    <div className="rounded-2xl border border-line bg-surface-muted p-5">
-      <p className="text-[15px] text-ink-muted">{label}</p>
-      <p className="mt-1 break-words text-[17px] text-ink">
+    <div
+      className={`rounded-2xl border p-5 ${
+        emphasis
+          ? "border-ready-line bg-ready-soft"
+          : "border-line bg-surface-muted"
+      }`}
+    >
+      <p className={`text-[15px] ${emphasis ? "text-ready-ink/80" : "text-ink-muted"}`}>
+        {label}
+      </p>
+      <p
+        className={`mt-1 break-words ${
+          emphasis
+            ? "text-[19px] font-semibold text-ready-ink"
+            : "text-[17px] text-ink"
+        }`}
+      >
         {value ?? "Not recorded"}
       </p>
     </div>
   );
 }
+
+/** The tinted line that says what the dates on an active placement mean today. */
+const ATTENTION_CLASSES = {
+  info: "border-info-line bg-info-soft text-info-ink",
+  ready: "border-ready-line bg-ready-soft text-ready-ink",
+  warning: "border-warning-line bg-warning-soft text-warning-ink",
+  attention: "border-attention-line bg-attention-soft text-attention-ink",
+  neutral: "border-line bg-surface-muted text-ink-muted",
+};
 
 /**
  * One student's placement, in full.
@@ -110,6 +143,10 @@ export default async function StudentPlacementPage(
   // it can only be finished: a student who was actually there was not
   // "cancelled", and their hours have to be credited somewhere.
   const notStarted = current?.status === "assigned";
+  const started = current?.status === "started";
+  const attention = current
+    ? placementAttention(current, todayKey())
+    : null;
 
   return (
     <>
@@ -148,7 +185,14 @@ export default async function StudentPlacementPage(
 
       <div className="flex flex-col gap-6">
         {current && partner ? (
-          <Section title="Current Placement">
+          <Section
+            title={started ? "Active Placement" : "Current Assignment"}
+            description={
+              started
+                ? "This student is at this partner right now. Finishing it is the action at the bottom of this section."
+                : "This placement has been arranged but has not started yet."
+            }
+          >
             <div className="flex flex-col gap-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0">
@@ -186,24 +230,57 @@ export default async function StudentPlacementPage(
                 </div>
               </div>
 
+              {attention ? (
+                <p
+                  className={`rounded-2xl border px-5 py-4 text-[16px] ${ATTENTION_CLASSES[attention.tone]}`}
+                >
+                  <span className="font-semibold">{attention.label}.</span>{" "}
+                  {attention.description}
+                </p>
+              ) : null}
+
+              {/* The two dates that matter are different in the two states. An
+                  assigned placement is about when it is meant to START; a
+                  started one about when it actually DID and when it should end. */}
               <div className="grid gap-4 sm:grid-cols-2">
-                <Detail
-                  label="Planned Start Date"
-                  value={formatDate(current.planned_start_date)}
-                />
-                <Detail
-                  label="Planned End Date"
-                  value={formatDate(current.planned_end_date)}
-                />
+                {started ? (
+                  <>
+                    <Detail
+                      label="Actual Start Date"
+                      value={formatDate(current.actual_start_date)}
+                      emphasis
+                    />
+                    <Detail
+                      label="Planned End Date"
+                      value={formatDate(current.planned_end_date)}
+                      emphasis
+                    />
+                    <Detail
+                      label="Planned Start Date"
+                      value={formatDate(current.planned_start_date)}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Detail
+                      label="Planned Start Date"
+                      value={formatDate(current.planned_start_date)}
+                    />
+                    <Detail
+                      label="Planned End Date"
+                      value={formatDate(current.planned_end_date)}
+                    />
+                  </>
+                )}
                 <Detail
                   label="Assigned Date"
                   value={formatTimestamp(current.assigned_at)}
                 />
                 <Detail label="Assigned By" value={current.assignedByName} />
-                {current.actual_start_date ? (
+                {current.actual_end_date ? (
                   <Detail
-                    label="Actual Start Date"
-                    value={formatDate(current.actual_start_date)}
+                    label="Actual End Date"
+                    value={formatDate(current.actual_end_date)}
                   />
                 ) : null}
                 <div className="sm:col-span-2">
@@ -244,6 +321,7 @@ export default async function StudentPlacementPage(
                         <StartPlacementButton
                           placementId={current.id}
                           studentName={fullName}
+                          studentNumber={student.student_number}
                           partnerName={partner.name}
                           plannedStartDate={current.planned_start_date}
                         />
@@ -257,7 +335,10 @@ export default async function StudentPlacementPage(
                       <FinishPlacementForm
                         placementId={current.id}
                         studentName={fullName}
+                        studentNumber={student.student_number}
                         partnerName={partner.name}
+                        actualStartDate={current.actual_start_date}
+                        plannedEndDate={current.planned_end_date}
                       />
                     )}
                   </div>

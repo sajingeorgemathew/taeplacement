@@ -5,6 +5,7 @@ import HoldControl from "@/components/placement/HoldControl";
 import { partnerLocationLabel } from "@/components/partners/PartnerList";
 import StatusPill from "@/components/ui/StatusPill";
 import { availabilityChipLabel, formatDate, formatTimestamp } from "@/lib/format";
+import { placementAttention, todayKey } from "@/lib/placement/attention";
 import {
   AVAILABILITY_STATUS_TONES,
   PLACEMENT_RECORD_STATUS_LABELS,
@@ -89,6 +90,10 @@ export default function StudentPlacementSection({
 
   const past = history.filter((row) => row.id !== placement?.id);
   const creditedHours = formatCreditedHours(totalCreditedHours(history));
+  const started = placement?.status === "started";
+  const attention = placement
+    ? placementAttention(placement, todayKey())
+    : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -124,17 +129,31 @@ export default function StudentPlacementSection({
 
       {placement && partner ? (
         <>
-          <div className="rounded-2xl border border-info-line bg-info-soft p-6">
+          <div
+            className={`rounded-2xl border p-6 ${
+              started
+                ? "border-ready-line bg-ready-soft"
+                : "border-info-line bg-info-soft"
+            }`}
+          >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[15px] text-info-ink">Current placement</p>
+                <p
+                  className={`text-[15px] ${started ? "text-ready-ink" : "text-info-ink"}`}
+                >
+                  {started ? "On placement now" : "Current assignment"}
+                </p>
                 <Link
                   href={`/placement-partners/${partner.id}`}
                   className="mt-1 block text-[22px] font-semibold leading-snug text-ink hover:text-brand-strong"
                 >
                   {partner.name}
                 </Link>
-                <p className="mt-2 flex items-start gap-2 text-[16px] text-info-ink">
+                <p
+                  className={`mt-2 flex items-start gap-2 text-[16px] ${
+                    started ? "text-ready-ink" : "text-info-ink"
+                  }`}
+                >
                   <MapPin
                     size={18}
                     aria-hidden="true"
@@ -159,7 +178,22 @@ export default function StudentPlacementSection({
             </div>
           </div>
 
+          {attention ? (
+            <p className="text-[16px] font-medium text-ink">
+              {attention.label}.{" "}
+              <span className="font-normal text-ink-muted">
+                {attention.description}
+              </span>
+            </p>
+          ) : null}
+
           <div className="grid gap-4 rounded-2xl border border-line bg-surface-muted p-6 sm:grid-cols-2">
+            {started ? (
+              <Detail
+                label="Actual Start"
+                value={formatDate(placement.actual_start_date)}
+              />
+            ) : null}
             <Detail
               label="Planned Start"
               value={formatDate(placement.planned_start_date)}
@@ -199,8 +233,8 @@ export default function StudentPlacementSection({
 
           <p className="text-[15px] text-ink-muted">
             {placement.status === "assigned"
-              ? "This placement has not started yet. Starting it, or cancelling the assignment, is done on the placement page."
-              : "Finishing this placement is done on the placement page, where staff also say whether it completes the student's whole requirement."}
+              ? "This placement has not started yet. Starting it, or cancelling the assignment, is done on the placement page. It never starts on its own."
+              : "Finishing this placement is done on the placement page, where staff also say whether it completes the student's whole requirement. A placement the student actually attended is finished, never cancelled."}
           </p>
         </>
       ) : (

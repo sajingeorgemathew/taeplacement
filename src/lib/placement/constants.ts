@@ -36,7 +36,7 @@ export const PLACEMENT_STATUS_LABELS: Record<PlacementStatus, string> = {
   documents_pending: "Documents Pending",
   ready_for_placement: "Ready for Placement",
   placement_assigned: "Placement Assigned",
-  placement_started: "Placement Started",
+  placement_started: "On Placement",
   placement_completed: "Placement Completed",
   on_hold: "On Hold",
 };
@@ -124,12 +124,20 @@ export function isBulkReceiveEligible(
  */
 export type Tone = "info" | "ready" | "attention" | "neutral" | "warning";
 
+/**
+ * Assigned and On Placement are deliberately DIFFERENT colours.
+ *
+ * They are the two states most easily confused on a board, and the difference
+ * between them is the whole of this module: one student is waiting to start,
+ * the other is at their partner right now. Blue reads as arranged, green as
+ * happening.
+ */
 export const PLACEMENT_STATUS_TONES: Record<PlacementStatus, Tone> = {
   needs_review: "attention",
   documents_pending: "attention",
   ready_for_placement: "ready",
   placement_assigned: "info",
-  placement_started: "info",
+  placement_started: "ready",
   placement_completed: "ready",
   on_hold: "attention",
 };
@@ -406,16 +414,16 @@ export const PLACEMENT_RECORD_STATUS_LABELS: Record<
 };
 
 /**
- * Green for a segment that finished properly, amber for one that ended early
- * (a real placement, just not a finished one), grey for an assignment that
- * never meaningfully happened.
+ * Blue for an assignment that is arranged, green for one that is happening or
+ * finished properly, amber for one that ended early (a real placement, just not
+ * a finished one), grey for an assignment that never meaningfully happened.
  */
 export const PLACEMENT_RECORD_STATUS_TONES: Record<
   PlacementRecordStatus,
   Tone
 > = {
   assigned: "info",
-  started: "info",
+  started: "ready",
   completed: "ready",
   ended_early: "warning",
   cancelled: "neutral",

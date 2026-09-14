@@ -19,6 +19,14 @@ type PlacementBoardProps = {
   students: PlacementBoardStudent[];
   /** Only admin and placement_manager may change placement state. */
   canManage: boolean;
+  /**
+   * Today as "YYYY-MM-DD", computed once on the server.
+   *
+   * Every card reads its planned and actual dates against this one value, so a
+   * board can never show one student as late and another as on time because the
+   * clock moved between two renders.
+   */
+  today: string;
 };
 
 /**
@@ -36,22 +44,30 @@ const MAX_SPEED = 26;
 /**
  * The Placement Board.
  *
- * Five working columns: Needs Review, Documents Pending, Ready for Placement,
- * Placement Assigned, On Hold. Completed placements are deliberately not here.
- * They are history and live in List View and in a student's placement history,
- * where they cannot crowd out the students who still need work.
+ * Six working columns: Needs Review, Documents Pending, Ready for Placement,
+ * Placement Assigned, On Placement, On Hold. Students whose whole placement
+ * REQUIREMENT is complete are deliberately not here. They are history and live
+ * in List View and in a student's placement history, where they cannot crowd
+ * out the students who still need work.
  *
- * DRAG NEVER FAKES A PLACEMENT. Placement state is business logic, not a card
- * position, so only the moves that are honestly a staff decision do anything:
+ * On Placement is students.placement_status = placement_started, which the
+ * database keeps in step with a student_placements row at status = started.
+ * There is no second definition of "on placement" anywhere in this application.
+ *
+ * DRAG NEVER FAKES A PLACEMENT, and it never moves the lifecycle. Placement
+ * state is business logic, not a card position, so only the moves that are
+ * honestly a staff decision do anything:
  *
  *   any column -> On Hold          pauses the student
  *   On Hold    -> any column       releases them, back to whatever the facts say
  *   Ready      -> Assigned         opens Find Placement, because an assignment
  *                                  needs a real partner, not a dropped card
  *
- * Every other drag is refused WITH A REASON, so staff learn the rule rather
- * than wonder why the card sprang back. The document-derived columns in
- * particular can only be changed by changing the documents.
+ * Everything else is refused WITH A REASON naming the action that does it, so
+ * staff learn the rule rather than wonder why the card sprang back. Assigned to
+ * On Placement is Start Placement. On Placement to anything is Finish
+ * Placement, which has a question attached that only a staff member can answer.
+ * The document-derived columns can only be changed by changing the documents.
  *
  * Nothing here depends on dragging: every action a drag can take is also a
  * plain button on the card, which is how the board works on a tablet and for
@@ -60,6 +76,7 @@ const MAX_SPEED = 26;
 export default function PlacementBoard({
   students,
   canManage,
+  today,
 }: PlacementBoardProps) {
   const router = useRouter();
 
@@ -226,8 +243,11 @@ export default function PlacementBoard({
         <p className="text-[16px] text-ink-muted">
           Drag a student into On Hold to pause them, or out of On Hold to
           release them. Dragging a Ready student into Placement Assigned opens
-          Find Placement, because an assignment needs a real partner. The first
-          three columns come from the document checklist and are changed there.
+          Find Placement, because an assignment needs a real partner. Starting
+          and finishing a placement are buttons on the card, never a drag, and a
+          placement never starts on its own because its planned date arrived.
+          The first three columns come from the document checklist and are
+          changed there.
         </p>
       ) : (
         <p className="text-[16px] text-ink-muted">
@@ -300,6 +320,7 @@ export default function PlacementBoard({
                     key={student.id}
                     student={student}
                     canManage={canManage}
+                    today={today}
                     pending={pending}
                     dragging={draggingId === student.id}
                     onDragStart={() => setDraggingId(student.id)}
