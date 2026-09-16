@@ -22,6 +22,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   DocumentNoteSchema,
   DocumentStatusChangeSchema,
+  DocumentStudentMessageSchema,
   RequirementFormSchema,
   requirementFormDataToObject,
 } from "./schema";
@@ -160,6 +161,55 @@ export async function saveDocumentNoteAction(input: {
 
   if (error || !data) {
     return { error: "That note could not be saved. Try again." };
+  }
+
+  revalidateStudent(data.student_id);
+  return OK;
+}
+
+/**
+ * One short STUDENT FACING message per document row.
+ *
+ * Deliberately a separate action from saveDocumentNoteAction, writing a
+ * separate column. The two pieces of text have different readers, and the one
+ * way this feature could go badly wrong is for them to become one field that
+ * sometimes gets emailed. Nothing here reads or writes `note`, and nothing in
+ * saveDocumentNoteAction reads or writes `student_message`.
+ *
+ * Saving a student message NEVER sends anything. Email is staff-triggered.
+ */
+export async function saveStudentMessageAction(input: {
+  documentId: string;
+  studentMessage: string;
+}): Promise<DocumentActionResult> {
+  const session = await requireActiveStaff();
+  if (!canManageDocuments(session)) return NOT_ALLOWED;
+
+  const parsed = DocumentStudentMessageSchema.safeParse({
+    document_id: input.documentId,
+    student_message: input.studentMessage,
+  });
+  if (!parsed.success) {
+    return {
+      error:
+        parsed.error.issues[0]?.message ??
+        "That student message could not be saved.",
+    };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("student_placement_documents")
+    .update({
+      student_message: parsed.data.student_message,
+      updated_by: session.userId,
+    })
+    .eq("id", parsed.data.document_id)
+    .select("student_id")
+    .maybeSingle();
+
+  if (error || !data) {
+    return { error: "That student message could not be saved. Try again." };
   }
 
   revalidateStudent(data.student_id);

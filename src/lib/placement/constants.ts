@@ -543,3 +543,174 @@ export const DOCUMENT_TO_PLACEMENT_STATUS: Record<
   pending: "documents_pending",
   ready: "ready_for_placement",
 };
+
+/**
+ * Student placement document email vocabulary.
+ *
+ * These match the CHECK constraints in
+ * supabase/migrations/0008_student_document_email.sql.
+ *
+ * An email is an OBSERVATION about the checklist. Nothing in this section
+ * changes a document status, a readiness total, or a placement status, and no
+ * status change anywhere ever sends an email. Staff decide when to send.
+ */
+
+export const STUDENT_EMAIL_TYPES = [
+  "document_status",
+  "document_reminder",
+] as const;
+
+export type StudentEmailType = (typeof STUDENT_EMAIL_TYPES)[number];
+
+export const STUDENT_EMAIL_TYPE_LABELS: Record<StudentEmailType, string> = {
+  document_status: "Document Status Update",
+  document_reminder: "Outstanding Document Reminder",
+};
+
+export function isStudentEmailType(value: unknown): value is StudentEmailType {
+  return (
+    typeof value === "string" &&
+    STUDENT_EMAIL_TYPES.includes(value as StudentEmailType)
+  );
+}
+
+/**
+ * The local delivery status of one logged email.
+ *
+ * accepted is deliberately NOT "delivered". It means Resend took the API call
+ * and nothing more. Only a provider webhook may say an email reached someone,
+ * so the interface never promises delivery on the strength of a 200 response.
+ */
+export const STUDENT_EMAIL_STATUSES = [
+  "pending",
+  "accepted",
+  "sent",
+  "delivered",
+  "delivery_delayed",
+  "bounced",
+  "failed",
+  "complained",
+] as const;
+
+export type StudentEmailStatus = (typeof STUDENT_EMAIL_STATUSES)[number];
+
+export const STUDENT_EMAIL_STATUS_LABELS: Record<StudentEmailStatus, string> = {
+  pending: "Preparing",
+  accepted: "Accepted by Resend",
+  sent: "Sent",
+  delivered: "Delivered",
+  delivery_delayed: "Delivery Delayed",
+  bounced: "Bounced",
+  failed: "Failed",
+  complained: "Marked as Spam",
+};
+
+/**
+ * Grey while it is still only our word for it, green once the provider says the
+ * message arrived, amber for a delay that may still resolve itself, coral for
+ * the three outcomes a staff member has to do something about.
+ */
+export const STUDENT_EMAIL_STATUS_TONES: Record<StudentEmailStatus, Tone> = {
+  pending: "neutral",
+  accepted: "info",
+  sent: "info",
+  delivered: "ready",
+  delivery_delayed: "warning",
+  bounced: "attention",
+  failed: "attention",
+  complained: "attention",
+};
+
+/**
+ * The statuses that count as "this student has already been emailed".
+ *
+ * accepted, sent, and delivered are all real sends: the message left the
+ * building. delivery_delayed is one of them too, because a delayed message is
+ * still on its way and emailing again would double it.
+ *
+ * pending is not, because it means an attempt that never reached the provider.
+ * bounced, failed, and complained are not either: nothing arrived, so a second
+ * attempt is not a duplicate. That is also why the duplicate WARNING is only
+ * ever a warning and never a block.
+ */
+export const STUDENT_EMAIL_SENT_STATUSES: readonly StudentEmailStatus[] = [
+  "accepted",
+  "sent",
+  "delivered",
+  "delivery_delayed",
+];
+
+export function isStudentEmailSent(status: StudentEmailStatus): boolean {
+  return STUDENT_EMAIL_SENT_STATUSES.includes(status);
+}
+
+export function isStudentEmailStatus(
+  value: unknown,
+): value is StudentEmailStatus {
+  return (
+    typeof value === "string" &&
+    STUDENT_EMAIL_STATUSES.includes(value as StudentEmailStatus)
+  );
+}
+
+/**
+ * How the checklist is divided in a STUDENT FACING email.
+ *
+ * This is not the readiness split and it must never be confused with it.
+ * READY_DOCUMENT_STATUSES counts not_applicable as ready, because a
+ * requirement that does not apply cannot hold a student back. An email is a
+ * different question: what should this student READ?
+ *
+ *   received        Completed. Tell them it is done.
+ *   requested       Action Needed. We asked; it has not arrived.
+ *   needs_update    Action Needed. It arrived and something is wrong with it.
+ *   not_applicable  NOTHING. Omitted completely, name and all. A student who is
+ *                   exempt from a requirement should not be handed a list that
+ *                   says so, and "N/A" in an email reads as a problem.
+ *   not_reviewed    NOTHING. It means nobody on staff has looked yet, which is
+ *                   our state, not theirs. Printing it as outstanding would ask
+ *                   a student to chase a document they may have already sent.
+ *
+ * The two omissions are the whole reason these lists exist separately.
+ */
+export const EMAIL_COMPLETED_STATUSES: readonly PlacementDocumentStatus[] = [
+  "received",
+];
+
+export const EMAIL_ACTION_NEEDED_STATUSES: readonly PlacementDocumentStatus[] =
+  ["requested", "needs_update"];
+
+/** Never named, never counted, never hinted at in a student email. */
+export const EMAIL_OMITTED_STATUSES: readonly PlacementDocumentStatus[] = [
+  "not_applicable",
+  "not_reviewed",
+];
+
+export function isEmailCompletedStatus(
+  status: PlacementDocumentStatus,
+): boolean {
+  return EMAIL_COMPLETED_STATUSES.includes(status);
+}
+
+/**
+ * True for the two statuses that make a student a BULK REMINDER recipient.
+ *
+ * A student with nothing in this state is not reminded. That excludes a fully
+ * ready student, and it excludes a student whose requirements are all still
+ * Not Reviewed, who would otherwise be chased for work staff have not looked at
+ * yet.
+ */
+export function isEmailActionNeededStatus(
+  status: PlacementDocumentStatus,
+): boolean {
+  return EMAIL_ACTION_NEEDED_STATUSES.includes(status);
+}
+
+export function isEmailOmittedStatus(
+  status: PlacementDocumentStatus,
+): boolean {
+  return EMAIL_OMITTED_STATUSES.includes(status);
+}
+
+/** Within this window a second email to the same student is a duplicate risk. */
+export const RECENT_EMAIL_WINDOW_HOURS = 24;
