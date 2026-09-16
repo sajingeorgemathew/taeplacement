@@ -1,5 +1,5 @@
 /**
- * Hand written database types for the PLACEMENT-01 to PLACEMENT-04 schema.
+ * Hand written database types for the PLACEMENT-01 to PLACEMENT-06A schema.
  *
  * Keep this file in step with supabase/migrations/. It is deliberately small:
  * only the tables this application actually reads and writes.
@@ -20,6 +20,8 @@ import type {
   PlacementStatus,
   RelationshipStatus,
   StaffRole,
+  StudentEmailStatus,
+  StudentEmailType,
 } from "@/lib/placement/constants";
 
 type Timestamps = {
@@ -95,7 +97,17 @@ export type StudentDocumentRow = Timestamps & {
   received_by: string | null;
   received_at: string | null;
   updated_by: string | null;
+  /**
+   * INTERNAL. Staff only. Never leaves the application and is never placed in
+   * an email to a student.
+   */
   note: string | null;
+  /**
+   * STUDENT FACING. A short staff-written line that may be included in a
+   * placement document email. Deliberately a different column from note, and
+   * nothing is ever copied between the two.
+   */
+  student_message: string | null;
 };
 
 /**
@@ -246,6 +258,54 @@ export type StudentPlacementRow = Timestamps & {
   cancellation_reason: string | null;
 };
 
+/**
+ * One outbound placement document email to one student.
+ *
+ * The permanent business record of what the academy sent. A bulk reminder to 27
+ * students is 27 rows, each with its own subject, body, snapshot, provider id,
+ * and delivery status; send_group_id records only that they went out together.
+ *
+ * content_snapshot holds the structured content used AT SEND TIME, so the Email
+ * History never rebuilds an old email from today's checklist. It contains no
+ * internal notes. See DocumentEmailSnapshot in src/lib/documents/email-content.ts
+ * for its shape.
+ */
+export type StudentEmailLogRow = Timestamps & {
+  id: string;
+  student_id: string;
+  email_type: StudentEmailType;
+  /** The address actually used, normalized, as it was at send time. */
+  recipient_email: string;
+  subject: string;
+  body_text: string;
+  body_html: string;
+  content_snapshot: unknown;
+  /** Null until Resend accepts the send. */
+  resend_email_id: string | null;
+  status: StudentEmailStatus;
+  idempotency_key: string;
+  /** Shared by one bulk reminder. Null for an individual send. */
+  send_group_id: string | null;
+  /** Live profile reference. Nulled if that staff profile is ever removed. */
+  sent_by: string | null;
+  /**
+   * The sender's display name, frozen at send time.
+   *
+   * Snapshotted like the body and the content, so "who told this student their
+   * police check was missing" stays answerable after that person has left and
+   * sent_by has gone null. Never recomputed from today's profiles.
+   */
+  sent_by_name: string | null;
+  sent_at: string | null;
+  delivered_at: string | null;
+  bounced_at: string | null;
+  failed_at: string | null;
+  complained_at: string | null;
+  last_provider_event_at: string | null;
+  /** Safe message only. Never a provider secret or raw payload. */
+  error_message: string | null;
+};
+
 type TableShape<Row, Insert, Update> = {
   Row: Row;
   Insert: Insert;
@@ -328,6 +388,48 @@ export type PlacementAreaCityInsert = Omit<
   Partial<Pick<PlacementAreaCityRow, "id">>;
 export type PlacementAreaCityUpdate = Partial<PlacementAreaCityInsert>;
 
+/**
+ * Everything the provider fills in later defaults to null, so creating the
+ * pending row before the Resend call sends only what the application knows.
+ */
+export type StudentEmailLogInsert = Omit<
+  StudentEmailLogRow,
+  | "id"
+  | "created_at"
+  | "updated_at"
+  | "resend_email_id"
+  | "status"
+  | "send_group_id"
+  | "sent_by"
+  | "sent_by_name"
+  | "sent_at"
+  | "delivered_at"
+  | "bounced_at"
+  | "failed_at"
+  | "complained_at"
+  | "last_provider_event_at"
+  | "error_message"
+> &
+  Partial<
+    Pick<
+      StudentEmailLogRow,
+      | "id"
+      | "resend_email_id"
+      | "status"
+      | "send_group_id"
+      | "sent_by"
+      | "sent_by_name"
+      | "sent_at"
+      | "delivered_at"
+      | "bounced_at"
+      | "failed_at"
+      | "complained_at"
+      | "last_provider_event_at"
+      | "error_message"
+    >
+  >;
+export type StudentEmailLogUpdate = Partial<StudentEmailLogInsert>;
+
 export type StudentPlacementInsert = Omit<
   StudentPlacementRow,
   "id" | "created_at" | "updated_at" | "assigned_at"
@@ -386,6 +488,11 @@ export type Database = {
         StudentPlacementRow,
         StudentPlacementInsert,
         StudentPlacementUpdate
+      >;
+      student_email_log: TableShape<
+        StudentEmailLogRow,
+        StudentEmailLogInsert,
+        StudentEmailLogUpdate
       >;
     };
     Views: {

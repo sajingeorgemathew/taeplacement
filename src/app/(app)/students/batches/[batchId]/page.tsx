@@ -1,8 +1,11 @@
+import { Mail } from "lucide-react";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { StudentList } from "@/components/students/StudentRow";
 import StudentToolbar from "@/components/students/StudentToolbar";
 import BackLink from "@/components/ui/BackLink";
+import { canManageDocuments, getStaffSession } from "@/lib/auth/session";
 import { listStudentReadiness } from "@/lib/documents/queries";
 import { formatDate, studentCountLabel } from "@/lib/format";
 import {
@@ -26,10 +29,13 @@ export default async function BatchPage(
   const batch = await getBatch(batchId);
   if (!batch) notFound();
 
-  const [students, readinessByStudent] = await Promise.all([
+  const [students, readinessByStudent, session] = await Promise.all([
     listStudents({ ...studentFiltersFrom(values), batchId: batch.id }),
     listStudentReadiness(),
+    getStaffSession(),
   ]);
+
+  const canEmail = canManageDocuments(session);
 
   const needingPlacement = students.filter((student) =>
     NEEDS_PLACEMENT_STATUSES.includes(student.placement_status),
@@ -60,6 +66,21 @@ export default async function BatchPage(
           {batch.schedule_label ? ` - ${batch.schedule_label}` : ""}
           {startDate ? ` - starts ${startDate}` : ""}
         </p>
+
+        {/*
+          Bulk document reminders live behind a review screen, scoped to this
+          batch. There is deliberately no roster-wide equivalent of this link
+          anywhere in the application.
+        */}
+        {canEmail ? (
+          <Link
+            href={`/students/batches/${batch.id}/document-reminders`}
+            className="mt-6 inline-flex items-center gap-2 rounded-2xl border border-line bg-surface px-6 py-4 text-[17px] font-medium text-ink transition-colors hover:border-brand hover:bg-brand-soft hover:text-brand-strong"
+          >
+            <Mail size={20} aria-hidden="true" />
+            Send Document Reminders
+          </Link>
+        ) : null}
       </div>
 
       <div className="mb-10 grid gap-4 sm:grid-cols-3">

@@ -9,8 +9,16 @@ import { updateSupabaseSession } from "@/lib/supabase/proxy";
  * session on the server, and Row Level Security is the real boundary.
  */
 
-/** Routes that a signed out visitor is allowed to reach. */
-const PUBLIC_PATHS = ["/login", "/auth"];
+/**
+ * Routes that a signed out visitor is allowed to reach.
+ *
+ * /api/resend is the Resend delivery webhook. There is no staff member behind a
+ * provider callback, so redirecting it to /login would turn every delivery
+ * event into a 307 the provider retries forever. It is not unprotected: the
+ * route refuses anything without a valid Resend signature, which is a stronger
+ * check than a session cookie.
+ */
+const PUBLIC_PATHS = ["/login", "/auth", "/api/resend"];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(

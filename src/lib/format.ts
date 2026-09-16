@@ -204,3 +204,27 @@ export function formatTimeOfDay(value: string): string | null {
 function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
+
+/**
+ * "2 hours ago", "just now", "3 days ago".
+ *
+ * Used where the age of something is the point rather than the moment it
+ * happened: "A document status email was sent 2 hours ago" tells a staff member
+ * whether to send again far better than a timestamp does. The exact time is
+ * always shown beside it, never instead of it.
+ */
+export function timeAgoLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const minutes = Math.floor((Date.now() - date.getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}

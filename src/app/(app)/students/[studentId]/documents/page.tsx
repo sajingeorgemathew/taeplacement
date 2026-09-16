@@ -3,8 +3,11 @@ import { notFound } from "next/navigation";
 import DocumentChecklist from "@/components/documents/DocumentChecklist";
 import FinalPlacementPackage from "@/components/documents/FinalPlacementPackage";
 import ReadinessSummary from "@/components/documents/ReadinessSummary";
+import SendStatusEmailButton from "@/components/documents/SendStatusEmailButton";
+import StudentEmailHistory from "@/components/documents/StudentEmailHistory";
 import BackLink from "@/components/ui/BackLink";
 import { getStaffSession, canManageDocuments } from "@/lib/auth/session";
+import { listStudentEmailHistory } from "@/lib/documents/email-queries";
 import {
   getStudentChecklist,
   getStudentPlacementPackage,
@@ -26,14 +29,21 @@ export default async function StudentDocumentsPage(
   const student = await getStudent(studentId);
   if (!student) notFound();
 
-  const [items, readiness, activeRequirements, placementPackage, session] =
-    await Promise.all([
-      getStudentChecklist(student.id),
-      getStudentReadiness(student.id),
-      listDocumentRequirements({ activeOnly: true }),
-      getStudentPlacementPackage(student.id),
-      getStaffSession(),
-    ]);
+  const [
+    items,
+    readiness,
+    activeRequirements,
+    placementPackage,
+    emailHistory,
+    session,
+  ] = await Promise.all([
+    getStudentChecklist(student.id),
+    getStudentReadiness(student.id),
+    listDocumentRequirements({ activeOnly: true }),
+    getStudentPlacementPackage(student.id),
+    listStudentEmailHistory(student.id),
+    getStaffSession(),
+  ]);
 
   const canManage = canManageDocuments(session);
   const fullName = studentFullName(student);
@@ -72,6 +82,21 @@ export default async function StudentDocumentsPage(
                 size="large"
               />
             </div>
+
+            {/*
+              Emailing a student is the same permission as changing their
+              documents. Management sees the Email History below but no send
+              button, and the action and Row Level Security both say so again.
+            */}
+            {canManage ? (
+              <div className="mt-6 border-t border-line pt-6">
+                <SendStatusEmailButton
+                  studentId={student.id}
+                  studentName={fullName}
+                  studentEmail={student.email}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -109,6 +134,27 @@ export default async function StudentDocumentsPage(
           canManage={canManage}
         />
       </div>
+
+      {/*
+        The permanent record of what this student was actually told, kept here
+        rather than in the Resend dashboard. Every entry is the snapshot that was
+        sent, so it never changes when the checklist does.
+      */}
+      <section aria-labelledby="email-history-heading" className="mt-10">
+        <h2
+          id="email-history-heading"
+          className="mb-2 text-[26px] font-semibold tracking-tight text-ink"
+        >
+          Email History
+        </h2>
+        <p className="mb-7 max-w-3xl text-[17px] text-ink-muted">
+          Every placement document email sent to this student. Opening one shows
+          exactly what was sent at the time, not a rebuild from today&apos;s
+          checklist.
+        </p>
+
+        <StudentEmailHistory items={emailHistory} />
+      </section>
     </>
   );
 }

@@ -10,8 +10,33 @@ const optionalText = z
   .nullable()
   .default(null);
 
-/** One short internal line per document. Not a discussion thread. */
+/**
+ * One short internal line per document. Not a discussion thread.
+ *
+ * Enforced HERE only. `student_placement_documents.note` is plain `text` in the
+ * database with no length constraint, so this is a form rule rather than a
+ * storage rule, and it has always been that way.
+ */
 export const DOCUMENT_NOTE_MAX_LENGTH = 300;
+
+/**
+ * One short student-facing line per document.
+ *
+ * Longer than the internal note, and the two numbers are NOT kept in step: they
+ * bound different things for different reasons. The internal note is a jotting
+ * for a colleague. This is an instruction to a student, and an instruction that
+ * explains itself ("The certificate you sent expired in June, please complete
+ * the mask fit again") is worth more than a terse one.
+ *
+ * Still bounded, because a box that invites three paragraphs invites the
+ * private staff comment that belongs in the internal note instead.
+ *
+ * Unlike the note limit, this one is ALSO a database CHECK constraint in
+ * supabase/migrations/0008_student_document_email.sql. This is the field whose
+ * contents leave the building, so its bound is a storage fact rather than a
+ * form convenience. Change one and change the other.
+ */
+export const DOCUMENT_STUDENT_MESSAGE_MAX_LENGTH = 500;
 
 export const DocumentStatusChangeSchema = z.object({
   document_id: z.uuid(),
@@ -26,6 +51,24 @@ export const DocumentNoteSchema = z.object({
     .max(
       DOCUMENT_NOTE_MAX_LENGTH,
       `Keep the note under ${DOCUMENT_NOTE_MAX_LENGTH} characters.`,
+    )
+    .transform((value) => (value.length > 0 ? value : null))
+    .nullable()
+    .default(null),
+});
+
+/**
+ * The STUDENT FACING message. A different field from the internal note, saved
+ * by a different action, and the only free text a student ever reads.
+ */
+export const DocumentStudentMessageSchema = z.object({
+  document_id: z.uuid(),
+  student_message: z
+    .string()
+    .trim()
+    .max(
+      DOCUMENT_STUDENT_MESSAGE_MAX_LENGTH,
+      `Keep the student message under ${DOCUMENT_STUDENT_MESSAGE_MAX_LENGTH} characters.`,
     )
     .transform((value) => (value.length > 0 ? value : null))
     .nullable()
