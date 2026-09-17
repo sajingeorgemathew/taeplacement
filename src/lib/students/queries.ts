@@ -44,7 +44,15 @@ function sanitizeSearchTerm(term: string): string {
   return term.replace(/[,()*%\\]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function buildSearchFilter(term: string): string | null {
+/**
+ * The `or` filter for a student search, shared with the Activity page.
+ *
+ * Exported because the Email Activity list searches the same roster by the same
+ * five columns before it filters the email log by the ids that matched. Two
+ * spellings of "search a student" would mean a name that finds a student on the
+ * Students page and finds nothing on Activity.
+ */
+export function buildStudentSearchFilter(term: string): string | null {
   const clean = sanitizeSearchTerm(term);
   if (!clean) return null;
 
@@ -121,7 +129,7 @@ export async function listStudents(
     query = query.eq("is_returning", filters.returning === "yes");
   }
   if (filters.search) {
-    const searchFilter = buildSearchFilter(filters.search);
+    const searchFilter = buildStudentSearchFilter(filters.search);
     if (searchFilter) query = query.or(searchFilter);
   }
 

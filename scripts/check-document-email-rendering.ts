@@ -36,6 +36,18 @@ import {
   parseStoredSnapshot,
 } from "../src/lib/documents/email-content";
 import {
+  emailActivityFiltersFrom,
+  emailActivityHref,
+  emptyEmailActivityValues,
+  EMAIL_ACTIVITY_PAGE_SIZE,
+  pageInfoFor,
+  providerErrorPreview,
+  PROVIDER_ERROR_PREVIEW_LENGTH,
+  rangeForPage,
+  resolveActivityStatuses,
+  startOfAcademyDay,
+} from "../src/lib/documents/email-activity";
+import {
   canAdvanceStatus,
   parseProviderEvent,
   providerStatusChange,
@@ -51,11 +63,20 @@ import {
 import { canManageDocuments } from "../src/lib/auth/session";
 import { hasUsableEmail, normalizeEmail } from "../src/lib/email/address";
 import {
+  hasUnresolvedEmailStatus,
   isEmailActionNeededStatus,
   isStudentEmailSent,
+  isStudentEmailStatusFinal,
   RECENT_EMAIL_WINDOW_HOURS,
+  STUDENT_EMAIL_FINAL_STATUSES,
+  STUDENT_EMAIL_STATUS_GROUPS,
+  STUDENT_EMAIL_STATUS_GROUP_STATUSES,
+  STUDENT_EMAIL_STATUSES,
+  STUDENT_EMAIL_UNRESOLVED_STATUSES,
+  studentEmailStatusGroup,
   type PlacementDocumentStatus,
   type StaffRole,
+  type StudentEmailStatus,
 } from "../src/lib/placement/constants";
 
 // ---------------------------------------------------------------------------
@@ -740,6 +761,241 @@ check(
   /sent_by uuid references public\.profiles \(id\) on delete set null,\s*\n\s*sent_by_name text,/.test(
     migration0008,
   ),
+);
+
+// ---------------------------------------------------------------------------
+// Email Activity: status groups, filters, and pagination (PLACEMENT-06A.1)
+//
+// All of it pure. The Activity page's filters, its three quick groups, and the
+// rule that decides when live polling stops are arithmetic and list membership,
+// so they can be exercised here without a database, a session, or a provider.
+//
+// The polling rule is the one worth a check rather than a comment: "stop when
+// everything is final" is a sentence that reads fine and would be wrong in two
+// different ways if Sent counted as final, or if a bounce did not.
+// ---------------------------------------------------------------------------
+
+section("Email Activity status groups");
+
+const ALL_EMAIL_STATUSES = [...STUDENT_EMAIL_STATUSES];
+
+check(
+  "every status belongs to exactly one quick group",
+  ALL_EMAIL_STATUSES.every((status) => {
+    const groups = STUDENT_EMAIL_STATUS_GROUPS.filter((group) =>
+      STUDENT_EMAIL_STATUS_GROUP_STATUSES[group].includes(status),
+    );
+    return groups.length === 1 && groups[0] === studentEmailStatusGroup(status);
+  }),
+);
+
+check(
+  "In Progress is exactly the unresolved statuses",
+  STUDENT_EMAIL_STATUS_GROUP_STATUSES.in_progress.join() ===
+    [...STUDENT_EMAIL_UNRESOLVED_STATUSES].join(),
+);
+
+check(
+  "Delivered and Needs Attention together are exactly the final statuses",
+  [
+    ...STUDENT_EMAIL_STATUS_GROUP_STATUSES.delivered,
+    ...STUDENT_EMAIL_STATUS_GROUP_STATUSES.needs_attention,
+  ]
+    .slice()
+    .sort()
+    .join() === [...STUDENT_EMAIL_FINAL_STATUSES].slice().sort().join(),
+);
+
+check(
+  "accepted and sent are NOT final, so polling keeps waiting on them",
+  !isStudentEmailStatusFinal("accepted") && !isStudentEmailStatusFinal("sent"),
+);
+
+check(
+  "accepted and sent are never grouped as Delivered",
+  studentEmailStatusGroup("accepted") === "in_progress" &&
+    studentEmailStatusGroup("sent") === "in_progress",
+);
+
+check(
+  "delivered, bounced, failed, and complained are final",
+  ["delivered", "bounced", "failed", "complained"].every((status) =>
+    isStudentEmailStatusFinal(status as StudentEmailStatus),
+  ),
+);
+
+check(
+  "a pending row is unresolved, so a stuck send is never called finished",
+  !isStudentEmailStatusFinal("pending"),
+);
+
+check(
+  "polling runs while one email is still unresolved",
+  hasUnresolvedEmailStatus(["delivered", "bounced", "sent"]),
+);
+
+check(
+  "polling stops once every visible email is final",
+  !hasUnresolvedEmailStatus(["delivered", "bounced", "failed", "complained"]),
+);
+
+check(
+  "an empty list is not something to poll",
+  !hasUnresolvedEmailStatus([]),
+);
+
+section("Email Activity filters");
+
+check(
+  "junk status, type, group, and range values are dropped",
+  Object.keys(
+    emailActivityFiltersFrom({
+      ...emptyEmailActivityValues,
+      status: "delivered_ish",
+      type: "newsletter",
+      group: "everything",
+      range: "since_tuesday",
+    }),
+  ).length === 0,
+);
+
+check(
+  "a real status, type, and group are kept",
+  (() => {
+    const filters = emailActivityFiltersFrom({
+      ...emptyEmailActivityValues,
+      status: "bounced",
+      type: "document_reminder",
+      group: "needs_attention",
+    });
+    return (
+      filters.status === "bounced" &&
+      filters.emailType === "document_reminder" &&
+      filters.group === "needs_attention"
+    );
+  })(),
+);
+
+check(
+  "All time sets no lower bound, and the other ranges do",
+  emailActivityFiltersFrom({ ...emptyEmailActivityValues, range: "all" })
+    .since === undefined &&
+    typeof emailActivityFiltersFrom({
+      ...emptyEmailActivityValues,
+      range: "30d",
+    }).since === "string",
+);
+
+check(
+  "Today starts no later than now and no earlier than 25 hours ago",
+  (() => {
+    const now = new Date();
+    const start = startOfAcademyDay(now).getTime();
+    return start <= now.getTime() && now.getTime() - start < 25 * 3_600_000;
+  })(),
+);
+
+check(
+  "a group filter asks for that group's statuses",
+  (resolveActivityStatuses({ group: "in_progress" }) ?? []).join() ===
+    [...STUDENT_EMAIL_UNRESOLVED_STATUSES].join(),
+);
+
+check(
+  "no status filter asks for every status",
+  resolveActivityStatuses({}) === null,
+);
+
+check(
+  "a status outside the group beside it matches nothing, rather than silently winning",
+  (resolveActivityStatuses({ status: "delivered", group: "needs_attention" }) ?? null)
+    ?.length === 0,
+);
+
+check(
+  "changing a filter returns to page one",
+  emailActivityHref(
+    "/activity",
+    { ...emptyEmailActivityValues, page: "4", batch: "b1" },
+    { status: "bounced" },
+  ) === "/activity?batch=b1&status=bounced",
+);
+
+check(
+  "changing page keeps every filter",
+  emailActivityHref(
+    "/activity",
+    { ...emptyEmailActivityValues, q: "amira", batch: "b1", status: "sent" },
+    { page: "3" },
+  ) === "/activity?q=amira&batch=b1&status=sent&page=3",
+);
+
+check(
+  "the defaults stay out of the URL",
+  emailActivityHref(
+    "/activity",
+    { ...emptyEmailActivityValues, range: "all", page: "1" },
+    {},
+  ) === "/activity",
+);
+
+section("Email Activity pagination");
+
+check(
+  "a page holds 50 emails",
+  EMAIL_ACTIVITY_PAGE_SIZE === 50,
+);
+
+check(
+  "page 2 asks for rows 50 to 99",
+  rangeForPage(2).from === 50 && rangeForPage(2).to === 99,
+);
+
+check(
+  "a page past the end is clamped to the last page that exists",
+  pageInfoFor(120, 99).page === 3 && pageInfoFor(120, 99).pageCount === 3,
+);
+
+check(
+  "the row window is described 1 based",
+  pageInfoFor(120, 2).firstRow === 51 && pageInfoFor(120, 2).lastRow === 100,
+);
+
+check(
+  "an empty result set is one page describing no rows",
+  pageInfoFor(0, 1).pageCount === 1 && pageInfoFor(0, 1).firstRow === 0,
+);
+
+check(
+  "a long provider error is cut to one line for the list",
+  (providerErrorPreview("x".repeat(400)) ?? "").length ===
+    PROVIDER_ERROR_PREVIEW_LENGTH,
+);
+
+check(
+  "a provider error's line breaks are collapsed rather than left to break a row",
+  providerErrorPreview("mailbox full\n\n  retry later") ===
+    "mailbox full retry later",
+);
+
+check(
+  "no provider error is no line at all",
+  providerErrorPreview(null) === null && providerErrorPreview("   ") === null,
+);
+
+check(
+  "the Activity list never reads the stored HTML body",
+  (() => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src", "lib", "documents", "email-queries.ts"),
+      "utf8",
+    );
+    const select = source.slice(
+      source.indexOf("const ACTIVITY_SELECT"),
+      source.indexOf("].join(\", \")"),
+    );
+    return select.length > 0 && !select.includes("body_html");
+  })(),
 );
 
 // ---------------------------------------------------------------------------
