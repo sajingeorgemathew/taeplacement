@@ -358,6 +358,80 @@ attention. **View Email** opens the stored snapshot and the exact text.
 Every active staff member can read the history, management included. Seeing what
 was communicated to a student is exactly the oversight a read-only role is for.
 
+## Email Activity
+
+The same rows, read across every student instead of one: **Activity -> Email
+Activity**, newest first. It exists because "did that batch reminder get
+through" was a question that took twenty-seven page visits to answer, and the
+two that bounced looked exactly like the twenty-five that did not until each was
+opened.
+
+Each row shows when the email was sent and by whom, the student (linked to their
+record) and their batch, the email type, the recipient address, how many items
+required attention, and the delivery status. **View Email** opens the same
+stored snapshot the student's own history opens. Nothing is ever regenerated
+from today's checklist.
+
+A bounced or failed email carries a short warning line under its row, clipped to
+one line so a long mail-server refusal cannot bury the rows beneath it. The full
+provider message is in the dialog, with every timestamp the provider reported.
+
+Historical values stay historical: the address shown is the `recipient_email`
+the message actually went to, and the sender is the `sent_by_name` frozen at
+send time. Only the student's name and batch are read live, because a list needs
+something to scan and something to click.
+
+**Filters**, all in the URL and all answered by the database: search by student
+or recipient address, batch, delivery status, email type, and a date window (All
+time, Today, Last 7 days, Last 30 days). Today is read in Toronto time, not UTC,
+so an email sent at 3pm is still "today" at 8pm. Fifty emails per page, newest
+first, with filters preserved across pages.
+
+Four blocks head the list and are also the quick filters - Total Emails,
+Delivered, In Progress, Needs Attention - counted for the current search, batch,
+type, and date scope.
+
+| Group | Statuses |
+| --- | --- |
+| Delivered | Delivered |
+| In Progress | Preparing, Accepted by Resend, Sent, Delivery Delayed |
+| Needs Attention | Bounced, Failed, Marked as Spam |
+
+This is a grouping of the eight statuses, not a second vocabulary, and **In
+Progress is never worded as delivered**. Each row still carries its own status
+label.
+
+Activity is a **read**. There is no delete, no edit, and no manual status
+override - and there could not be one, because active staff hold `SELECT` on
+`student_email_log` and nothing else. Visiting the page contacts no provider and
+sends nothing. It uses the ordinary authenticated Supabase client under Row
+Level Security; the service role is not involved.
+
+### Delivery statuses update on their own
+
+A status is written when the email is sent and then waits for Resend, so the
+page a staff member is reading was accurate when it rendered and is quietly
+stale seconds later. Both Activity and the per-student Email History therefore
+re-read from the server every ten seconds while any email on screen can still
+change, and stop once none can.
+
+| | Statuses | Behaviour |
+| --- | --- | --- |
+| Unresolved | Preparing, Accepted by Resend, Sent, Delivery Delayed | keep checking |
+| Final | Delivered, Bounced, Failed, Marked as Spam | stop |
+
+A small line says which is happening: "Checking delivery updates..." or
+"Delivery statuses up to date." Checking pauses while the browser tab is hidden
+and catches up when it is looked at again.
+
+Note that **Sent is not final**. A message the provider passed on and never
+reported again keeps being checked, because the alternative is telling staff
+that delivery is confirmed when nobody confirmed it.
+
+This is a plain refresh of the page's own server read - no realtime connection,
+no subscription, no extra endpoint - and it changes nothing: the Resend webhook
+remains the only thing that can move a status.
+
 ## Resend integration
 
 The official `resend` package. `src/lib/email/resend.ts` is the only module in
@@ -668,11 +742,17 @@ module.
 npm run check:email
 ```
 
-`scripts/check-document-email-rendering.ts` runs 57 assertions over the pure
+`scripts/check-document-email-rendering.ts` runs 86 assertions over the pure
 modules: the inclusion rules, the renderer, address validation, the student
 message length limit, the duplicate window, bulk eligibility, snapshot
-permanence, the permission helpers, webhook signature verification, and webhook
-event handling.
+permanence, the permission helpers, webhook signature verification, webhook
+event handling, and the Activity page's status groups, filters, and pagination.
+
+The group checks are there because "In Progress" and "Delivered" are one careless
+edit away from being the same list. They assert that every status belongs to
+exactly one group, that In Progress is exactly the unresolved set, that Accepted
+and Sent are never final and never grouped as Delivered, and that a bounce is
+final so polling stops on it.
 
 Seven of them read migration 0008 as text and assert on its **statements**, with
 `--` comments stripped, so that "authenticated staff may read the email log and

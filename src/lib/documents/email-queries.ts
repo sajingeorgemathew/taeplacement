@@ -20,16 +20,28 @@ import {
   isEmailActionNeededStatus,
   RECENT_EMAIL_WINDOW_HOURS,
   STUDENT_EMAIL_SENT_STATUSES,
+  STUDENT_EMAIL_STATUS_GROUP_STATUSES,
+  type StudentEmailStatus,
   type StudentEmailType,
 } from "@/lib/placement/constants";
+import { buildStudentSearchFilter } from "@/lib/students/queries";
 import type { StudentEmailLogRow } from "@/lib/supabase/database.types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+import {
+  EMAIL_ACTIVITY_STUDENT_MATCH_LIMIT,
+  pageInfoFor,
+  rangeForPage,
+  resolveActivityStatuses,
+  type EmailActivityFilters,
+  type EmailActivityPageInfo,
+} from "./email-activity";
 import {
   buildDocumentEmailSnapshot,
   countActionNeeded,
   emailEntriesFrom,
   hasSendableContent,
+  parseStoredSnapshot,
   type DocumentEmailSnapshot,
   type EmailReadinessSummary,
 } from "./email-content";
@@ -207,10 +219,26 @@ export async function listStudentEmailHistory(
 
   if (error) throw new Error(error.message);
 
-  const rows = data ?? [];
+  return resolveSenderNames(supabase, data ?? []);
+}
 
-  // Only rows with no frozen name need a profile read at all, so on a database
-  // where every row has one this query never runs.
+/** The shape resolveSenderNames needs, which both log readers satisfy. */
+type SenderColumns = { sent_by: string | null; sent_by_name: string | null };
+
+/**
+ * Attach the sender's display name to a set of log rows.
+ *
+ * Shared by the student's Email History and by the Activity page so both answer
+ * "who sent this" the same way, in the order of preference described above.
+ *
+ * One profile read for the whole set, and only for the rows that need it: on a
+ * database where every row carries its frozen name, the profiles table is never
+ * touched at all.
+ */
+async function resolveSenderNames<Row extends SenderColumns>(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  rows: Row[],
+): Promise<(Row & { sentByName: string | null })[]> {
   const senderIds = [
     ...new Set(
       rows
@@ -430,4 +458,341 @@ export async function getBatchReminderReview(
     noEmailCount,
     recentlyEmailedCount,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Email Activity
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of the Activity list.
+ *
+ * Everything operational about the send comes from the LOG ROW, never from
+ * today's records: recipient_email is the address the message actually went to,
+ * sent_by_name is who sent it at the time, and content_snapshot is what it
+ * said. Only the two things a log row cannot know about itself are joined in,
+ * and only so staff can read the list:
+ *
+ *   studentName   today's name, because it is the link to the student record
+ *   batchName     today's batch, because that is how staff scan the list
+ *
+ * They are display context, not history. A student who moves batch appears
+ * under their current batch, and the email they were sent is unchanged.
+ */
+export type EmailActivityItem = Omit<
+  StudentEmailLogRow,
+  "body_html" | "idempotency_key"
+> & {
+  sentByName: string | null;
+  studentName: string;
+  batchName: string | null;
+  /**
+   * How many items the stored snapshot asked the student to act on, or null
+   * when the snapshot cannot be read. Never recounted from the checklist.
+   */
+  actionNeededCount: number | null;
+};
+
+/**
+ * The columns the Activity list reads.
+ *
+ * body_html and idempotency_key are deliberately absent. The HTML body is the
+ * largest column on the table and nothing renders it - the dialog shows the
+ * structured snapshot and the exact plain text - so fetching fifty of them
+ * would move megabytes to a browser to display none of it. The idempotency key
+ * is a send-path implementation detail with no reader here.
+ */
+const ACTIVITY_SELECT = [
+  "id",
+  "student_id",
+  "email_type",
+  "recipient_email",
+  "subject",
+  "body_text",
+  "content_snapshot",
+  "resend_email_id",
+  "status",
+  "send_group_id",
+  "sent_by",
+  "sent_by_name",
+  "sent_at",
+  "delivered_at",
+  "bounced_at",
+  "failed_at",
+  "complained_at",
+  "last_provider_event_at",
+  "error_message",
+  "created_at",
+  "updated_at",
+  "student:students(id, first_name, middle_name, last_name, batch:batches(id, name))",
+].join(", ");
+
+type ActivityRow = Omit<StudentEmailLogRow, "body_html" | "idempotency_key"> & {
+  student: {
+    id: string;
+    first_name: string;
+    middle_name: string | null;
+    last_name: string | null;
+    batch: { id: string; name: string } | null;
+  } | null;
+};
+
+/**
+ * Which students the filters restrict the log to.
+ *
+ * The search box asks one question across two tables - "this student, or this
+ * recipient address" - and PostgREST cannot express an OR that spans a join. So
+ * the roster is asked first, by the same five columns the Students page
+ * searches, and the log is then filtered by the ids that came back OR by the
+ * recipient address on the row itself.
+ *
+ * Two things about that roster read matter:
+ *
+ *   Inactive students are INCLUDED. A deactivated student's emails are part of
+ *   the permanent record and must not vanish from Activity when their record is
+ *   retired.
+ *
+ *   Ids only. No names and no addresses are carried around: this is a filter,
+ *   not a result.
+ */
+type StudentScope = {
+  /** Log rows must belong to one of these students. Null means no restriction. */
+  requiredIds: string[] | null;
+  /** The `or` filter matching the recipient address or a matching student. */
+  searchFilter: string | null;
+  /** True when the filters cannot match anything at all. */
+  impossible: boolean;
+};
+
+async function resolveStudentScope(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  filters: EmailActivityFilters,
+): Promise<StudentScope> {
+  const scope: StudentScope = {
+    requiredIds: null,
+    searchFilter: null,
+    impossible: false,
+  };
+
+  if (filters.batchId) {
+    const { data, error } = await supabase
+      .from("students")
+      .select("id")
+      .eq("batch_id", filters.batchId);
+
+    if (error) throw new Error(error.message);
+    const ids = (data ?? []).map((student) => student.id);
+    // A batch with no students cannot have been emailed. Saying so here also
+    // keeps an empty `in.()` out of the query, which PostgREST would refuse.
+    if (ids.length === 0) return { ...scope, impossible: true };
+    scope.requiredIds = ids;
+  }
+
+  if (filters.search) {
+    // Supabase `or` filters are comma separated, so anything that would change
+    // the shape of the filter string is removed before it is used. The roster
+    // read below sanitizes the same term again for itself.
+    const clean = filters.search
+      .replace(/[,()*%\\]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const studentFilter = buildStudentSearchFilter(filters.search);
+
+    let matchedIds: string[] = [];
+    if (studentFilter) {
+      const { data, error } = await supabase
+        .from("students")
+        .select("id")
+        .or(studentFilter)
+        .limit(EMAIL_ACTIVITY_STUDENT_MATCH_LIMIT);
+
+      if (error) throw new Error(error.message);
+      matchedIds = (data ?? []).map((student) => student.id);
+    }
+
+    const conditions: string[] = [];
+    if (clean) conditions.push(`recipient_email.ilike.%${clean}%`);
+    if (matchedIds.length > 0) {
+      conditions.push(`student_id.in.(${matchedIds.join(",")})`);
+    }
+
+    if (conditions.length === 0) return { ...scope, impossible: true };
+    scope.searchFilter = conditions.join(",");
+  }
+
+  return scope;
+}
+
+/**
+ * One filtered query over the email log.
+ *
+ * Every read on this page goes through here - the page of rows, and each of the
+ * four counts above it - so a filter can never apply to the list and not to the
+ * numbers describing it.
+ *
+ * The client is the ordinary authenticated server client, so Row Level Security
+ * applies exactly as it does everywhere else: active staff may SELECT this
+ * table and nothing more. The service role is not used here, and must not be.
+ */
+function activityQuery(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  select: string,
+  options: { count?: "exact"; head?: boolean },
+  filters: EmailActivityFilters,
+  scope: StudentScope,
+  statuses: readonly StudentEmailStatus[] | null,
+) {
+  let query = supabase.from("student_email_log").select(select, options);
+
+  if (scope.requiredIds) query = query.in("student_id", scope.requiredIds);
+  if (scope.searchFilter) query = query.or(scope.searchFilter);
+  if (statuses) query = query.in("status", [...statuses]);
+  if (filters.emailType) query = query.eq("email_type", filters.emailType);
+  if (filters.since) query = query.gte("created_at", filters.since);
+
+  return query;
+}
+
+export type EmailActivityResult = EmailActivityPageInfo & {
+  items: EmailActivityItem[];
+};
+
+/**
+ * One page of placement emails across every student, newest first.
+ *
+ * Ordered by created_at, which is the column the log is indexed on and the only
+ * one that is never null: sent_at is still empty on a row whose send never
+ * reached the provider, and a failed attempt has to appear at the moment it was
+ * attempted rather than sink to the bottom of the list.
+ */
+export async function getEmailActivity(
+  filters: EmailActivityFilters = {},
+  requestedPage = 1,
+): Promise<EmailActivityResult> {
+  await requireActiveStaff();
+  const supabase = await createSupabaseServerClient();
+
+  const statuses = resolveActivityStatuses(filters);
+  const scope = await resolveStudentScope(supabase, filters);
+
+  const empty = (): EmailActivityResult => ({ ...pageInfoFor(0, 1), items: [] });
+
+  if (scope.impossible) return empty();
+  if (statuses && statuses.length === 0) return empty();
+
+  // Counted first, so a page number past the end of the result set can be
+  // clamped to a page that exists rather than answered with a blank list.
+  const { count, error: countError } = await activityQuery(
+    supabase,
+    "id",
+    { count: "exact", head: true },
+    filters,
+    scope,
+    statuses,
+  );
+
+  if (countError) throw new Error(countError.message);
+
+  const total = count ?? 0;
+  const info = pageInfoFor(total, requestedPage);
+  if (total === 0) return { ...info, items: [] };
+
+  const { from, to } = rangeForPage(info.page, info.pageSize);
+
+  const { data, error } = await activityQuery(
+    supabase,
+    ACTIVITY_SELECT,
+    {},
+    filters,
+    scope,
+    statuses,
+  )
+    .order("created_at", { ascending: false })
+    // A tiebreaker, so a bulk reminder that wrote twenty-seven rows in the same
+    // millisecond cannot shuffle between two reads and show one student twice
+    // across a page boundary while hiding another.
+    .order("id", { ascending: false })
+    .range(from, to);
+
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as unknown as ActivityRow[];
+  const withSenders = await resolveSenderNames(supabase, rows);
+
+  const items: EmailActivityItem[] = withSenders.map((row) => {
+    const { student, ...log } = row;
+    const snapshot = parseStoredSnapshot(log.content_snapshot);
+
+    return {
+      ...log,
+      studentName: student
+        ? studentFullName(student)
+        : // student_id is NOT NULL and the foreign key is `on delete restrict`,
+          // so this is unreachable through the database. It is handled rather
+          // than asserted away because a row whose student cannot be read
+          // should still be listed: the email still happened.
+          "Unknown student",
+      batchName: student?.batch?.name ?? null,
+      actionNeededCount: snapshot ? snapshot.action_needed.length : null,
+    };
+  });
+
+  return { ...info, items };
+}
+
+export type EmailActivitySummary = {
+  total: number;
+  delivered: number;
+  inProgress: number;
+  needsAttention: number;
+};
+
+/**
+ * The four counts above the list.
+ *
+ * They deliberately IGNORE the status and group filters and honour every other
+ * one. That is what makes them usable as the quick filters: standing on Needs
+ * Attention, a staff member can still see how many emails in the same search,
+ * batch, type, and date scope were delivered, and click straight to them. The
+ * page labels them as counts for that scope, so a number is never presented as
+ * the total of something it is not.
+ *
+ * Four counting queries rather than one read of every row: a count is a
+ * COUNT(*) that returns a number, where "select the status column and tally it
+ * here" would pull a year of the log into memory to produce four numbers.
+ */
+export async function getEmailActivitySummary(
+  filters: EmailActivityFilters = {},
+): Promise<EmailActivitySummary> {
+  await requireActiveStaff();
+  const supabase = await createSupabaseServerClient();
+
+  const scope = await resolveStudentScope(supabase, filters);
+  if (scope.impossible) {
+    return { total: 0, delivered: 0, inProgress: 0, needsAttention: 0 };
+  }
+
+  const countFor = async (
+    statuses: readonly StudentEmailStatus[] | null,
+  ): Promise<number> => {
+    const { count, error } = await activityQuery(
+      supabase,
+      "id",
+      { count: "exact", head: true },
+      filters,
+      scope,
+      statuses,
+    );
+    if (error) throw new Error(error.message);
+    return count ?? 0;
+  };
+
+  const [total, delivered, inProgress, needsAttention] = await Promise.all([
+    countFor(null),
+    countFor(STUDENT_EMAIL_STATUS_GROUP_STATUSES.delivered),
+    countFor(STUDENT_EMAIL_STATUS_GROUP_STATUSES.in_progress),
+    countFor(STUDENT_EMAIL_STATUS_GROUP_STATUSES.needs_attention),
+  ]);
+
+  return { total, delivered, inProgress, needsAttention };
 }

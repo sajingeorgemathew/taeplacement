@@ -654,6 +654,130 @@ export function isStudentEmailStatus(
 }
 
 /**
+ * Whether the provider has finished telling us about an email.
+ *
+ * This is the rule the Activity page and the student Email History poll on, and
+ * it is a statement about the PROVIDER's story rather than about success:
+ *
+ *   UNRESOLVED   something may still arrive from Resend about this email
+ *   FINAL        Resend has said the last thing it is going to say
+ *
+ * A bounce is therefore final and a "Sent" is not, which is the opposite of how
+ * the two read to a person. Sent means the provider has passed the message on
+ * and a delivery, a delay, or a bounce may still follow; bounced means the
+ * message is not going to arrive and nothing further is coming.
+ *
+ * pending is unresolved for a different reason: it is a row whose send never
+ * reached the provider, so nothing will ever move it on its own. It is listed
+ * here anyway, because polling a handful of stuck rows costs one query every
+ * ten seconds and quietly calling them finished would be a lie about a record
+ * staff may need to act on.
+ */
+export const STUDENT_EMAIL_UNRESOLVED_STATUSES: readonly StudentEmailStatus[] = [
+  "pending",
+  "accepted",
+  "sent",
+  "delivery_delayed",
+];
+
+export const STUDENT_EMAIL_FINAL_STATUSES: readonly StudentEmailStatus[] = [
+  "delivered",
+  "bounced",
+  "failed",
+  "complained",
+];
+
+export function isStudentEmailStatusFinal(status: StudentEmailStatus): boolean {
+  return STUDENT_EMAIL_FINAL_STATUSES.includes(status);
+}
+
+export function isStudentEmailStatusUnresolved(
+  status: StudentEmailStatus,
+): boolean {
+  return !isStudentEmailStatusFinal(status);
+}
+
+/** True when at least one of these emails may still change on its own. */
+export function hasUnresolvedEmailStatus(
+  statuses: readonly StudentEmailStatus[],
+): boolean {
+  return statuses.some(isStudentEmailStatusUnresolved);
+}
+
+/**
+ * The three operational groups staff filter by on the Activity page.
+ *
+ * They are a GROUPING of the eight statuses above, never a second vocabulary.
+ * Every status belongs to exactly one group, every group keeps the individual
+ * status label on the row itself, and no group is allowed to blur the one
+ * distinction this feature exists to protect:
+ *
+ *   Delivered        delivered. A recipient mail server accepted the message.
+ *   In Progress      pending, accepted, sent, delivery_delayed. On its way, or
+ *                    waiting to be. NOT delivered, and never described as such.
+ *   Needs Attention  bounced, failed, complained. A staff member has to do
+ *                    something.
+ *
+ * In Progress is exactly STUDENT_EMAIL_UNRESOLVED_STATUSES, and the other two
+ * together are exactly STUDENT_EMAIL_FINAL_STATUSES. That is not a coincidence
+ * worth maintaining by hand: the group lists below are BUILT from those two, so
+ * a ninth status cannot be added to one and forgotten in the other.
+ */
+export const STUDENT_EMAIL_STATUS_GROUPS = [
+  "delivered",
+  "in_progress",
+  "needs_attention",
+] as const;
+
+export type StudentEmailStatusGroup =
+  (typeof STUDENT_EMAIL_STATUS_GROUPS)[number];
+
+export const STUDENT_EMAIL_STATUS_GROUP_LABELS: Record<
+  StudentEmailStatusGroup,
+  string
+> = {
+  delivered: "Delivered",
+  in_progress: "In Progress",
+  needs_attention: "Needs Attention",
+};
+
+export const STUDENT_EMAIL_STATUS_GROUP_TONES: Record<
+  StudentEmailStatusGroup,
+  Tone
+> = {
+  delivered: "ready",
+  in_progress: "info",
+  needs_attention: "attention",
+};
+
+export const STUDENT_EMAIL_STATUS_GROUP_STATUSES: Record<
+  StudentEmailStatusGroup,
+  readonly StudentEmailStatus[]
+> = {
+  delivered: ["delivered"],
+  in_progress: STUDENT_EMAIL_UNRESOLVED_STATUSES,
+  needs_attention: STUDENT_EMAIL_FINAL_STATUSES.filter(
+    (status) => status !== "delivered",
+  ),
+};
+
+export function studentEmailStatusGroup(
+  status: StudentEmailStatus,
+): StudentEmailStatusGroup {
+  if (status === "delivered") return "delivered";
+  return isStudentEmailStatusFinal(status) ? "needs_attention" : "in_progress";
+}
+
+export function isStudentEmailStatusGroup(
+  value: unknown,
+): value is StudentEmailStatusGroup {
+  return (
+    typeof value === "string" &&
+    STUDENT_EMAIL_STATUS_GROUPS.includes(value as StudentEmailStatusGroup)
+  );
+}
+
+/**
  * How the checklist is divided in a STUDENT FACING email.
  *
  * This is not the readiness split and it must never be confused with it.

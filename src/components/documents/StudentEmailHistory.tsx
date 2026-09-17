@@ -9,11 +9,13 @@ import { parseStoredSnapshot } from "@/lib/documents/email-content";
 import type { StudentEmailHistoryItem } from "@/lib/documents/email-queries";
 import { formatTimestamp } from "@/lib/format";
 import {
+  hasUnresolvedEmailStatus,
   STUDENT_EMAIL_STATUS_LABELS,
   STUDENT_EMAIL_STATUS_TONES,
   STUDENT_EMAIL_TYPE_LABELS,
 } from "@/lib/placement/constants";
 
+import EmailStatusAutoRefresh from "./EmailStatusAutoRefresh";
 import EmailSnapshotView from "./EmailSnapshotView";
 
 /**
@@ -30,6 +32,14 @@ import EmailSnapshotView from "./EmailSnapshotView";
  * The status shown is the LOCAL status, which is honest about what we actually
  * know. "Accepted by Resend" means the provider took the message; it becomes
  * "Delivered" only when the provider's webhook says so.
+ *
+ * Those statuses now catch up on their own. The items are still loaded on the
+ * SERVER and passed in - this component has never queried anything and still
+ * does not - but while any of them can still change, EmailStatusAutoRefresh
+ * asks the server for the page again every ten seconds, and stops as soon as
+ * every email here has reached a final status. A staff member who sends a
+ * status email and stays on the page watches it reach Delivered without
+ * touching reload.
  */
 export default function StudentEmailHistory({
   items,
@@ -53,6 +63,12 @@ export default function StudentEmailHistory({
 
   return (
     <>
+      <div className="mb-4 flex justify-end">
+        <EmailStatusAutoRefresh
+          active={hasUnresolvedEmailStatus(items.map((item) => item.status))}
+        />
+      </div>
+
       <ul className="flex flex-col gap-4">
         {items.map((item) => {
           const snapshot = parseStoredSnapshot(item.content_snapshot);
