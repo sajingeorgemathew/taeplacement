@@ -1,7 +1,7 @@
 "use client";
 
 import { Mail } from "lucide-react";
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 
 import ActionDialog from "@/components/ui/ActionDialog";
 import {
@@ -9,10 +9,16 @@ import {
   sendStudentDocumentEmailAction,
   type EmailPreview,
 } from "@/lib/documents/email-actions";
+import {
+  normalizeOpeningMessage,
+  OPENING_MESSAGE_MAX_LENGTH,
+} from "@/lib/documents/email-settings";
+import { renderDocumentEmail } from "@/lib/documents/email-template";
 import { NO_EMAIL_MESSAGE } from "@/lib/email/address";
 import { formatTimestamp, timeAgoLabel } from "@/lib/format";
 
 import EmailSnapshotView from "./EmailSnapshotView";
+import OpeningMessageEditor from "./OpeningMessageEditor";
 
 const OUTLINE_BUTTON =
   "inline-flex items-center gap-2 rounded-2xl border border-line bg-surface px-5 py-3.5 text-[16px] font-medium text-ink transition-colors hover:border-brand hover:bg-brand-soft hover:text-brand-strong disabled:opacity-60";
@@ -46,6 +52,20 @@ const PRIMARY_BUTTON =
  * lost the first email needs a second one, and staff are the ones who know
  * that. Sending again is a new request id, so it is a new submission rather
  * than a duplicate.
+ *
+ * ---------------------------------------------------------------------------
+ * The opening message
+ * ---------------------------------------------------------------------------
+ *
+ * The preview arrives with the common Admin message already in place, in an
+ * editable box. The staff member may keep it, edit it, or clear it, and the
+ * preview underneath re-renders as they type, using the SAME pure template the
+ * server uses, so what they read is the final wording. Send submits that
+ * wording, and the server validates it and composes it with the student's
+ * CURRENT checklist, re-read at that moment.
+ *
+ * The edit is a draft for this one email. It is never saved anywhere else: not
+ * to the Admin setting, not to the student.
  */
 export default function SendStatusEmailButton({
   studentId,
@@ -64,6 +84,8 @@ export default function SendStatusEmailButton({
   const [error, setError] = useState<string | null>(null);
   const [sentAt, setSentAt] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
+  /** The opening message as typed for THIS email. Starts as the common one. */
+  const [openingDraft, setOpeningDraft] = useState("");
 
   const canEmail = Boolean(studentEmail?.trim());
 
@@ -72,24 +94,49 @@ export default function SendStatusEmailButton({
     setPreview(null);
     setError(null);
     setSentAt(null);
+    setOpeningDraft("");
     // A fresh id per preview. This is what makes Send Again a deliberate second
     // submission rather than a replay of the first one.
     setRequestId(crypto.randomUUID());
 
     startLoading(async () => {
       const result = await previewStudentDocumentEmailAction({ studentId });
-      if (result.ok) setPreview(result.preview);
-      else setError(result.error);
+      if (result.ok) {
+        setPreview(result.preview);
+        setOpeningDraft(result.preview.openingMessage ?? "");
+      } else {
+        setError(result.error);
+      }
     });
   }, [studentId]);
 
+  const openingMessage = normalizeOpeningMessage(openingDraft);
+  const openingTooLong = openingDraft.length > OPENING_MESSAGE_MAX_LENGTH;
+
+  /**
+   * The preview with the draft applied.
+   *
+   * The server built the snapshot from the live checklist a moment ago; only
+   * the opening message changes here, and it is rendered by the same pure
+   * template the server will use, so the text shown is the text that will be
+   * sent for this checklist.
+   */
+  const reviewed = useMemo(() => {
+    if (!preview) return null;
+    const snapshot = { ...preview.snapshot, opening_message: openingMessage };
+    return { snapshot, bodyText: renderDocumentEmail(snapshot).text };
+  }, [preview, openingMessage]);
+
   function send() {
-    if (!requestId) return;
+    if (!requestId || openingTooLong) return;
     setError(null);
     startSending(async () => {
       const result = await sendStudentDocumentEmailAction({
         studentId,
         requestId,
+        // The reviewed wording, exactly as it stands in the preview. null means
+        // the staff member cleared it for this email.
+        openingMessage,
       });
       if (result.ok) {
         setSentAt(new Date().toISOString());
@@ -179,10 +226,19 @@ export default function SendStatusEmailButton({
               </div>
             ) : null}
 
+            <div className="rounded-2xl border border-line bg-surface-muted p-5">
+              <OpeningMessageEditor
+                value={openingDraft}
+                commonMessage={preview.commonOpeningMessage}
+                onChange={setOpeningDraft}
+                disabled={sending}
+              />
+            </div>
+
             <EmailSnapshotView
-              snapshot={preview.snapshot}
+              snapshot={reviewed?.snapshot ?? preview.snapshot}
               subject={preview.subject}
-              bodyText={preview.bodyText}
+              bodyText={reviewed?.bodyText ?? preview.bodyText}
             />
 
             <div className="flex flex-wrap justify-end gap-3">
@@ -196,7 +252,7 @@ export default function SendStatusEmailButton({
               </button>
               <button
                 type="button"
-                disabled={sending}
+                disabled={sending || openingTooLong}
                 onClick={send}
                 className={PRIMARY_BUTTON}
               >

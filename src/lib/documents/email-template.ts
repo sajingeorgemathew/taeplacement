@@ -16,9 +16,10 @@
 
 import type { StudentEmailType } from "@/lib/placement/constants";
 
-import type {
-  DocumentEmailSnapshot,
-  EmailRequirementLine,
+import {
+  storedOpeningMessage,
+  type DocumentEmailSnapshot,
+  type EmailRequirementLine,
 } from "./email-content";
 
 /** Where student replies are read. Never the sending address. */
@@ -71,7 +72,26 @@ export function renderDocumentEmail(
   };
 }
 
-/** The opening line, which is the only place the two send types differ. */
+/**
+ * The optional OPENING MESSAGE, which sits between the greeting and the intro.
+ *
+ *   Hi Alex,
+ *
+ *   [opening message, if this email has one]
+ *
+ *   Here is your current placement-document status from ...
+ *
+ * It is read from the snapshot and nowhere else. The snapshot holds the exact
+ * message decided for THIS email at send time, so a two-month-old email
+ * re-rendered from its snapshot still opens with the notice it actually
+ * carried, and an email sent before the feature existed opens with nothing.
+ * Nothing here consults the Admin setting.
+ */
+function openingMessageFor(snapshot: DocumentEmailSnapshot): string | null {
+  return storedOpeningMessage(snapshot);
+}
+
+/** The intro line, which is the only place the two send types differ. */
 function introFor(snapshot: DocumentEmailSnapshot): string {
   if (snapshot.send_type === "document_reminder") {
     return `Here is a reminder of the placement documents we are still waiting for from you at ${ACADEMY_NAME}.`;
@@ -114,6 +134,10 @@ function renderText(
   const blocks: string[] = [];
 
   blocks.push(`Hi ${snapshot.student.first_name},`);
+
+  const openingMessage = openingMessageFor(snapshot);
+  if (openingMessage) blocks.push(openingMessage);
+
   blocks.push(introFor(snapshot));
 
   if (snapshot.completed.length > 0) {
@@ -168,6 +192,18 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * Escape, then turn newlines into <br />.
+ *
+ * The order is the whole point: the text is fully escaped first, so the only
+ * `<br />` in the output are the ones this function wrote. Used for the opening
+ * message, which is the one free-text field in the email long enough to be
+ * written on more than one line.
+ */
+function multilineHtml(value: string): string {
+  return escapeHtml(value).replace(/\r\n|\r|\n/g, "<br />");
+}
+
 /*
  * The app's own palette, as literal hex values.
  *
@@ -198,6 +234,18 @@ function renderHtml(
   parts.push(
     `<p style="margin:0 0 16px;">Hi ${escapeHtml(snapshot.student.first_name)},</p>`,
   );
+
+  // Staff-typed free text, escaped like every other free text in this file.
+  // Line breaks inside the message are kept as <br />, AFTER escaping, so a
+  // two-line notice reads as two lines and nothing in the text can become
+  // markup.
+  const openingMessage = openingMessageFor(snapshot);
+  if (openingMessage) {
+    parts.push(
+      `<p style="margin:0 0 16px;">${multilineHtml(openingMessage)}</p>`,
+    );
+  }
+
   parts.push(
     `<p style="margin:0 0 24px;">${escapeHtml(introFor(snapshot))}</p>`,
   );

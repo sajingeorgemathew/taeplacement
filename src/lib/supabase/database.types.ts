@@ -1,5 +1,5 @@
 /**
- * Hand written database types for the PLACEMENT-01 to PLACEMENT-06A schema.
+ * Hand written database types for the PLACEMENT-01 to PLACEMENT-06A.2 schema.
  *
  * Keep this file in step with supabase/migrations/. It is deliberately small:
  * only the tables this application actually reads and writes.
@@ -430,6 +430,32 @@ export type StudentEmailLogInsert = Omit<
   >;
 export type StudentEmailLogUpdate = Partial<StudentEmailLogInsert>;
 
+/**
+ * The one row of Academy-wide placement email settings.
+ *
+ * A singleton: id is always 1, enforced by a CHECK in
+ * supabase/migrations/0009_placement_email_settings.sql. Read by any active
+ * staff member, updated only by an admin, never inserted or deleted from the
+ * application. See PlacementEmailSettings in
+ * src/lib/documents/email-settings.ts for the application-side shape.
+ */
+export type PlacementEmailSettingsRow = {
+  id: number;
+  opening_message_enabled: boolean;
+  /** STUDENT FACING. Trimmed, at most 600 characters. Blank means no message. */
+  opening_message: string;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+/** Only the two settings and who saved them. The id and updated_at never move. */
+export type PlacementEmailSettingsUpdate = Partial<
+  Pick<
+    PlacementEmailSettingsRow,
+    "opening_message_enabled" | "opening_message" | "updated_by"
+  >
+>;
+
 export type StudentPlacementInsert = Omit<
   StudentPlacementRow,
   "id" | "created_at" | "updated_at" | "assigned_at"
@@ -493,6 +519,11 @@ export type Database = {
         StudentEmailLogRow,
         StudentEmailLogInsert,
         StudentEmailLogUpdate
+      >;
+      placement_email_settings: TableShape<
+        PlacementEmailSettingsRow,
+        never,
+        PlacementEmailSettingsUpdate
       >;
     };
     Views: {

@@ -29,6 +29,12 @@ import {
   type ComposedEmail,
   type ComposeFailure,
 } from "./email-queries";
+import {
+  OPENING_MESSAGE_MAX_LENGTH,
+  OpeningMessageSchema,
+  validateOpeningMessage,
+} from "./email-settings";
+import { getCommonOpeningMessage } from "./email-settings-queries";
 
 /**
  * Sending placement document emails.
@@ -70,6 +76,22 @@ import {
  *
  * Step 7 stops at "accepted". The interface never says Delivered because an API
  * call returned 200.
+ *
+ * ---------------------------------------------------------------------------
+ * The opening message (PLACEMENT-06A.2)
+ * ---------------------------------------------------------------------------
+ *
+ * The ONE thing a send now accepts from the browser beyond "which student" is
+ * the opening message the staff member reviewed in the preview: the common
+ * Admin message unchanged, their edit of it, or null because they cleared it.
+ * It is validated here (a string of at most 600 characters, or null), and then
+ * handed to composeStudentDocumentEmail(), which re-reads the student and the
+ * CURRENT checklist exactly as before. Document state is still never trusted
+ * from the browser; only the student-facing sentence the sender approved is.
+ *
+ * Nothing about it changes the Admin setting or the student. It is frozen onto
+ * the log row's content_snapshot and into body_text/body_html, and that is the
+ * only place it goes.
  */
 
 /** The result of one attempted send. */
@@ -201,6 +223,17 @@ export type EmailPreview = {
   actionNeededCount: number;
   /** A real send inside the last 24 hours, so the dialog can warn. */
   recentSend: { sentAt: string | null; status: StudentEmailStatus } | null;
+  /**
+   * The opening message THIS preview was built with, or null. On first open it
+   * is the common message; after an edit it is whatever the staff member typed.
+   */
+  openingMessage: string | null;
+  /**
+   * The Academy-wide default as it stands right now, or null when disabled or
+   * blank. Shown so the interface can offer "Reset to common" and tell the two
+   * apart. Never written by anything on the send path.
+   */
+  commonOpeningMessage: string | null;
 };
 
 export type PreviewResult =
@@ -214,10 +247,16 @@ export type PreviewResult =
  * the preview is not a mock-up of the email: it is the email. The send re-reads
  * everything again a moment later, so an approved preview still cannot send
  * stale content if the checklist moved in between.
+ *
+ * openingMessage left undefined means "start from the common message". A
+ * string or null means the staff member has already edited or cleared it and
+ * wants to see the result; it is validated here the same way the send validates
+ * it, so a message the preview accepts is a message the send will accept.
  */
 export async function previewStudentDocumentEmailAction(input: {
   studentId: string;
   sendType?: StudentEmailType;
+  openingMessage?: string | null;
 }): Promise<PreviewResult> {
   const session = await requireActiveStaff();
   if (!canManageDocuments(session)) {
@@ -227,14 +266,24 @@ export async function previewStudentDocumentEmailAction(input: {
     return { ok: false, error: "That student could not be found." };
   }
 
+  let openingMessage: string | null | undefined;
+  if (input.openingMessage !== undefined) {
+    const checked = validateOpeningMessage(input.openingMessage);
+    if (!checked.ok) return { ok: false, error: checked.error };
+    openingMessage = checked.message;
+  }
+
   const sendType: StudentEmailType = input.sendType ?? "document_status";
-  const composed = await composeStudentDocumentEmail(input.studentId, sendType, {
-    requireActionNeeded: sendType === "document_reminder",
-  });
+  const [composed, recent, commonOpeningMessage] = await Promise.all([
+    composeStudentDocumentEmail(input.studentId, sendType, {
+      requireActionNeeded: sendType === "document_reminder",
+      openingMessage,
+    }),
+    getRecentEmailSend(input.studentId),
+    getCommonOpeningMessage(),
+  ]);
 
   if (!composed.ok) return { ok: false, error: messageFor(composed.reason) };
-
-  const recent = await getRecentEmailSend(input.studentId);
 
   return {
     ok: true,
@@ -248,6 +297,8 @@ export async function previewStudentDocumentEmailAction(input: {
       recentSend: recent
         ? { sentAt: recent.sent_at, status: recent.status }
         : null,
+      openingMessage: composed.email.openingMessage,
+      commonOpeningMessage,
     },
   };
 }
@@ -383,10 +434,17 @@ async function deliverComposedEmail(options: {
  * click sends the same requestId twice and the second one loses the unique
  * constraint. Sending again on purpose is a different submission with a new
  * requestId, which is why Send Again is never blocked.
+ *
+ * openingMessage is the wording the staff member reviewed in the preview: a
+ * string they kept or edited, or null because they cleared it. It is validated
+ * before anything else happens and then composed together with the student's
+ * CURRENT checklist, re-read here. Left undefined (an older client), the common
+ * Admin message is used, which is what the preview would have shown.
  */
 export async function sendStudentDocumentEmailAction(input: {
   studentId: string;
   requestId: string;
+  openingMessage?: string | null;
 }): Promise<SendEmailActionResult> {
   const auth = await authorizeSend();
   if (!auth.ok) return { ok: false, error: auth.error };
@@ -398,9 +456,17 @@ export async function sendStudentDocumentEmailAction(input: {
     return { ok: false, error: "That request could not be read. Try again." };
   }
 
+  let openingMessage: string | null | undefined;
+  if (input.openingMessage !== undefined) {
+    const checked = validateOpeningMessage(input.openingMessage);
+    if (!checked.ok) return { ok: false, error: checked.error };
+    openingMessage = checked.message;
+  }
+
   const composed = await composeStudentDocumentEmail(
     input.studentId,
     "document_status",
+    { openingMessage },
   );
   if (!composed.ok) {
     return { ok: false, error: messageFor(composed.reason) };
@@ -437,6 +503,29 @@ const BulkInputSchema = z.object({
   batchId: z.uuid(),
   sendGroupId: z.uuid(),
   studentIds: z.array(z.uuid()).min(1).max(MAX_BULK_RECIPIENTS),
+  /**
+   * The REVIEWED BATCH DEFAULT: the common opening message exactly as the
+   * review screen showed it when it loaded, or null when there was none. It is
+   * required, not optional, and it is what every non-customized student gets.
+   * The send never re-reads the Admin setting to decide this wording; see the
+   * action below.
+   */
+  defaultOpeningMessage: OpeningMessageSchema,
+  /**
+   * Per-student opening messages, for the students a staff member customized
+   * on the review screen. Everyone not listed here gets the reviewed default.
+   * Each one is validated on its own; one bad entry fails the whole submission
+   * BEFORE any email is sent, so a batch can never go out half-customized.
+   */
+  customOpeningMessages: z
+    .array(
+      z.object({
+        studentId: z.uuid(),
+        openingMessage: OpeningMessageSchema,
+      }),
+    )
+    .max(MAX_BULK_RECIPIENTS)
+    .default([]),
 });
 
 /**
@@ -477,11 +566,36 @@ const BulkInputSchema = z.object({
  *
  * Students are never BCC'd together. Each one gets their own message, and one
  * student can never see another student's address.
+ *
+ * ---------------------------------------------------------------------------
+ * Opening messages in a batch
+ * ---------------------------------------------------------------------------
+ *
+ * The opening message is human-reviewed email content, so the wording the
+ * review screen SHOWED is the wording that is SENT. The review page resolves
+ * the common Admin message when it loads and that text becomes the reviewed
+ * batch default; the browser submits it back here as defaultOpeningMessage,
+ * beside any per-student customizations. This action validates both and uses
+ * them as submitted. It deliberately does NOT read the Admin setting: an admin
+ * who changes Email Settings while a review screen is open changes what the
+ * NEXT review shows, never what an already-reviewed submission says.
+ *
+ * A student the staff member customized arrives in customOpeningMessages with
+ * their own wording (or null, meaning cleared), and that wording is used for
+ * that student's email and nobody else's. Every message is validated before
+ * the first email goes out. A customization belongs to this send group only:
+ * it is frozen onto that one log row and stored nowhere else.
+ *
+ * This is the ONLY thing the browser decides. The student, the recipient
+ * address, and the checklist are still re-read on the server for every student,
+ * immediately before their email is composed.
  */
 export async function sendBatchDocumentRemindersAction(input: {
   batchId: string;
   sendGroupId: string;
   studentIds: string[];
+  defaultOpeningMessage: string | null;
+  customOpeningMessages?: { studentId: string; openingMessage: string | null }[];
 }): Promise<BulkSendResult> {
   const auth = await authorizeSend();
   if (!auth.ok) {
@@ -496,14 +610,39 @@ export async function sendBatchDocumentRemindersAction(input: {
 
   const parsed = BulkInputSchema.safeParse(input);
   if (!parsed.success) {
+    const messageIssue = parsed.error.issues.find(
+      (issue) =>
+        issue.path[0] === "defaultOpeningMessage" ||
+        issue.path[0] === "customOpeningMessages",
+    );
     return {
-      error: `Choose between 1 and ${MAX_BULK_RECIPIENTS} students in this batch.`,
+      error: messageIssue
+        ? messageIssue.code === "too_big"
+          ? `One of the opening messages is over ${OPENING_MESSAGE_MAX_LENGTH} characters. Shorten it and try again.`
+          : "The reviewed opening message could not be read. Reload the page and review the reminders again."
+        : `Choose between 1 and ${MAX_BULK_RECIPIENTS} students in this batch.`,
       sent: 0,
       failed: 0,
       skipped: 0,
       failures: [],
     };
   }
+
+  // The reviewed batch default, as submitted and validated. Students without a
+  // customization share it; a customized student's entry replaces it, and a
+  // customized null means that one email opens with nothing. The Admin setting
+  // is not consulted here.
+  const { defaultOpeningMessage } = parsed.data;
+  const customOpeningMessages = new Map(
+    parsed.data.customOpeningMessages.map((entry) => [
+      entry.studentId,
+      entry.openingMessage,
+    ]),
+  );
+  const openingMessageFor = (studentId: string): string | null =>
+    customOpeningMessages.has(studentId)
+      ? (customOpeningMessages.get(studentId) ?? null)
+      : defaultOpeningMessage;
 
   // Deliberately the ORDINARY authenticated client, not the service role. This
   // is a read the signed in staff member is entitled to make, so it goes
@@ -552,7 +691,10 @@ export async function sendBatchDocumentRemindersAction(input: {
       const composed = await composeStudentDocumentEmail(
         studentId,
         "document_reminder",
-        { requireActionNeeded: true },
+        {
+          requireActionNeeded: true,
+          openingMessage: openingMessageFor(studentId),
+        },
       );
 
       if (!composed.ok) {

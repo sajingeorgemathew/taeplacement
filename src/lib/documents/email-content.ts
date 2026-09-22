@@ -44,8 +44,18 @@ import {
   type StudentEmailType,
 } from "@/lib/placement/constants";
 
-/** The current state of the snapshot format. Stored with every log row. */
-export const EMAIL_SNAPSHOT_VERSION = 1;
+/**
+ * The current state of the snapshot format. Stored with every log row.
+ *
+ *   1  PLACEMENT-06A.   Student, readiness, completed, action_needed, omitted.
+ *   2  PLACEMENT-06A.2. Adds `opening_message`, the exact opening message that
+ *      was present in the sent email, or null for none.
+ *
+ * Version 1 rows are never rewritten and stay readable: parseStoredSnapshot()
+ * accepts both shapes, and a version 1 snapshot simply has no opening message.
+ * Nothing is ever backfilled from today's Admin setting.
+ */
+export const EMAIL_SNAPSHOT_VERSION = 2;
 
 /**
  * One checklist row, reduced to the four things an email may know about it.
@@ -104,6 +114,15 @@ export type DocumentEmailSnapshot = {
     recipient_email: string;
     batch_name: string | null;
   };
+  /**
+   * The EXACT opening message the email carried, directly after the greeting,
+   * or null for none. Frozen here at send time, like everything else in the
+   * snapshot, so the history shows the notice the student actually read rather
+   * than whatever the Admin setting says today.
+   *
+   * Optional, because version 1 snapshots predate it. Absent means none.
+   */
+  opening_message?: string | null;
   readiness: EmailReadinessSummary;
   completed: EmailRequirementLine[];
   action_needed: EmailRequirementLine[];
@@ -235,6 +254,11 @@ export function isReminderEligible(
  *
  * generatedAt is passed in rather than read from the clock, so the same inputs
  * always produce the same snapshot and a test can assert on it.
+ *
+ * openingMessage is the message ALREADY DECIDED for this email: the common
+ * Admin message, a staff member's edit of it for this one send, or null for
+ * none. This function does not read the setting and does not know which of the
+ * three it was given; it freezes what it is handed. Blank is stored as null.
  */
 export function buildDocumentEmailSnapshot(input: {
   student: EmailStudent;
@@ -243,6 +267,7 @@ export function buildDocumentEmailSnapshot(input: {
   readiness: EmailReadinessSummary;
   sendType: StudentEmailType;
   generatedAt: string;
+  openingMessage?: string | null;
 }): DocumentEmailSnapshot {
   const { entries } = input;
 
@@ -258,6 +283,7 @@ export function buildDocumentEmailSnapshot(input: {
       recipient_email: input.recipientEmail,
       batch_name: input.student.batch_name,
     },
+    opening_message: tidyMessage(input.openingMessage),
     readiness: input.readiness,
     completed: completedLines(entries),
     action_needed: actionNeededLines(entries),
@@ -298,6 +324,12 @@ export const NOTHING_TO_SEND_MESSAGE =
  * the value has the shape the history UI needs. Nothing is recomputed and no
  * missing field is filled in from today's data: a snapshot that cannot be read
  * is shown as unavailable rather than quietly replaced by a fresh one.
+ *
+ * Both snapshot versions are accepted. A version 1 row has no `opening_message`
+ * key at all, and that is read as "this email had no opening message", which is
+ * true: the feature did not exist when it was sent. It is NOT filled in from
+ * today's Admin setting. A version 2 row carries the exact message it was sent
+ * with, or null.
  */
 export function parseStoredSnapshot(
   value: unknown,
@@ -307,4 +339,19 @@ export function parseStoredSnapshot(
   if (!snapshot.student || !Array.isArray(snapshot.completed)) return null;
   if (!Array.isArray(snapshot.action_needed)) return null;
   return snapshot as DocumentEmailSnapshot;
+}
+
+/**
+ * The opening message a STORED snapshot carried, or null.
+ *
+ * Read-only tolerance for both versions: a missing key (version 1), an explicit
+ * null, and a blank string all mean none. A value that is somehow not a string
+ * is treated as none rather than rendered, because the exact body_text stored
+ * beside the snapshot remains the ultimate record of what was sent.
+ */
+export function storedOpeningMessage(
+  snapshot: Pick<DocumentEmailSnapshot, "opening_message">,
+): string | null {
+  const value = snapshot.opening_message;
+  return typeof value === "string" ? tidyMessage(value) : null;
 }
