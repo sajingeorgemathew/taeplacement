@@ -30,11 +30,24 @@ import { Resend } from "resend";
 import {
   buildDocumentEmailSnapshot,
   countActionNeeded,
+  EMAIL_SNAPSHOT_VERSION,
   emailEntriesFrom,
   hasSendableContent,
   isReminderEligible,
   parseStoredSnapshot,
+  storedOpeningMessage,
+  type DocumentEmailSnapshot,
 } from "../src/lib/documents/email-content";
+import {
+  DEFAULT_PLACEMENT_EMAIL_SETTINGS,
+  effectiveOpeningMessage,
+  EmailSettingsFormSchema,
+  normalizeOpeningMessage,
+  OPENING_MESSAGE_HELPER_TEXT,
+  OPENING_MESSAGE_MAX_LENGTH,
+  settingsFromRow,
+  validateOpeningMessage,
+} from "../src/lib/documents/email-settings";
 import {
   emailActivityFiltersFrom,
   emailActivityHref,
@@ -996,6 +1009,554 @@ check(
     );
     return select.length > 0 && !select.includes("body_html");
   })(),
+);
+
+// ---------------------------------------------------------------------------
+// PLACEMENT-06A.2  The opening message
+// ---------------------------------------------------------------------------
+//
+// Two levels: a COMMON Academy-wide message with an on/off switch, and a
+// PER-SEND message a staff member may keep, edit, or clear for one email. The
+// rule these checks pin down is that the message is decided BEFORE the snapshot
+// is built, frozen INTO the snapshot, and rendered FROM the snapshot, so the
+// history never has to ask what the Admin setting says today.
+
+section("Opening message");
+
+const COMMON_MESSAGE =
+  "Important: Please use placement@torontoacademy.ca for all placement-related communication. Please do not use WhatsApp for placement inquiries or document follow-up at this time.";
+
+/** The same fixture student, with an opening message already decided. */
+function snapshotWithOpening(
+  openingMessage: string | null | undefined,
+  items: ReturnType<typeof row>[] = CHECKLIST,
+) {
+  return buildDocumentEmailSnapshot({
+    student: {
+      id: "11111111-1111-4111-8111-111111111111",
+      student_number: "TAE-0001",
+      first_name: "Alex",
+      full_name: "Alex Placeholder",
+      batch_name: "April 27 Batch",
+    },
+    recipientEmail: "alex.placeholder@example.com",
+    entries: emailEntriesFrom(items),
+    readiness: READINESS,
+    sendType: "document_status",
+    generatedAt: "2026-09-16T18:41:00.000Z",
+    openingMessage,
+  });
+}
+
+/** A settings row as the database returns it. */
+function settingsRow(enabled: boolean, message: string) {
+  return settingsFromRow({
+    id: 1,
+    opening_message_enabled: enabled,
+    opening_message: message,
+    updated_at: "2026-09-22T12:00:00.000Z",
+    updated_by: "22222222-2222-4222-8222-222222222222",
+  });
+}
+
+const disabledSettings = settingsRow(false, COMMON_MESSAGE);
+const enabledSettings = settingsRow(true, `  ${COMMON_MESSAGE}  `);
+
+check(
+  "O1 the setting disabled means no opening message, even with text saved",
+  effectiveOpeningMessage(disabledSettings) === null &&
+    effectiveOpeningMessage(DEFAULT_PLACEMENT_EMAIL_SETTINGS) === null,
+);
+
+check(
+  "O1b a disabled setting renders exactly the email PLACEMENT-06A rendered",
+  (() => {
+    const off = renderDocumentEmail(
+      snapshotWithOpening(effectiveOpeningMessage(disabledSettings)),
+    );
+    return off.text === rendered.text && off.html === rendered.html;
+  })(),
+);
+
+check(
+  "O2 the setting enabled means the common message, trimmed",
+  effectiveOpeningMessage(enabledSettings) === COMMON_MESSAGE,
+);
+
+check(
+  "O2b enabled but blank is still no message",
+  effectiveOpeningMessage(settingsRow(true, "   \n ")) === null,
+);
+
+const withCommon = snapshotWithOpening(effectiveOpeningMessage(enabledSettings));
+const renderedWithCommon = renderDocumentEmail(withCommon);
+
+check(
+  "O3 the common message appears in the plain text body",
+  renderedWithCommon.text.includes(COMMON_MESSAGE),
+);
+
+check(
+  "O3b the common message appears in the HTML body",
+  renderedWithCommon.html.includes(
+    "Important: Please use placement@torontoacademy.ca",
+  ),
+);
+
+check(
+  "O4 it sits directly after the greeting and before the usual introduction",
+  (() => {
+    const text = renderedWithCommon.text;
+    const greeting = text.indexOf("Hi Alex,");
+    const opening = text.indexOf(COMMON_MESSAGE);
+    const intro = text.indexOf("Here is your current placement-document status");
+    const completed = text.indexOf("COMPLETED");
+    const htmlGreeting = renderedWithCommon.html.indexOf("Hi Alex,");
+    const htmlOpening = renderedWithCommon.html.indexOf("Important: Please use");
+    const htmlIntro = renderedWithCommon.html.indexOf(
+      "Here is your current placement-document status",
+    );
+    return (
+      greeting !== -1 &&
+      greeting < opening &&
+      opening < intro &&
+      intro < completed &&
+      htmlGreeting < htmlOpening &&
+      htmlOpening < htmlIntro
+    );
+  })(),
+);
+
+check(
+  "O5 the rest of the email is unchanged by the opening message",
+  (() => {
+    // Remove the one added block from the text body and the two bodies match.
+    const stripped = renderedWithCommon.text.replace(
+      `${COMMON_MESSAGE}\n\n`,
+      "",
+    );
+    return stripped === rendered.text && renderedWithCommon.subject === rendered.subject;
+  })(),
+);
+
+check(
+  "O6 the snapshot freezes the exact message and says so in its version",
+  withCommon.opening_message === COMMON_MESSAGE &&
+    withCommon.version === 2 &&
+    EMAIL_SNAPSHOT_VERSION === 2,
+);
+
+check(
+  "O7 an individual override changes only that email's snapshot",
+  (() => {
+    const custom = "Our office is closed Friday. Replies resume Monday.";
+    const overridden = snapshotWithOpening(custom);
+    const cleared = snapshotWithOpening(null);
+    return (
+      overridden.opening_message === custom &&
+      renderDocumentEmail(overridden).text.includes(custom) &&
+      !renderDocumentEmail(overridden).text.includes(COMMON_MESSAGE) &&
+      cleared.opening_message === null &&
+      renderDocumentEmail(cleared).text === rendered.text &&
+      // The setting the override started from is exactly what it was.
+      effectiveOpeningMessage(enabledSettings) === COMMON_MESSAGE
+    );
+  })(),
+);
+
+check(
+  "O8 in a batch, one customized student does not change another, and reset restores the common message",
+  (() => {
+    // The resolution rule the batch action applies, per student: a key in the
+    // customizations wins (a null value means cleared); otherwise the common
+    // message. Reset to common is deleting the key.
+    const common = effectiveOpeningMessage(enabledSettings);
+    const custom = new Map<string, string | null>([
+      ["student-b", "Bring your certificate to the front desk."],
+      ["student-c", null],
+    ]);
+    const resolve = (id: string) =>
+      custom.has(id) ? (custom.get(id) ?? null) : common;
+
+    const a = snapshotWithOpening(resolve("student-a")).opening_message;
+    const b = snapshotWithOpening(resolve("student-b")).opening_message;
+    const c = snapshotWithOpening(resolve("student-c")).opening_message;
+    custom.delete("student-b");
+    const bReset = snapshotWithOpening(resolve("student-b")).opening_message;
+
+    return (
+      a === COMMON_MESSAGE &&
+      b === "Bring your certificate to the front desk." &&
+      c === null &&
+      bReset === COMMON_MESSAGE
+    );
+  })(),
+);
+
+check(
+  "O9 normalization trims and treats blank as none",
+  normalizeOpeningMessage("  hello  ") === "hello" &&
+    normalizeOpeningMessage("   ") === null &&
+    normalizeOpeningMessage("") === null &&
+    normalizeOpeningMessage(null) === null &&
+    normalizeOpeningMessage(undefined) === null,
+);
+
+check(
+  "O10 600 characters is accepted and 601 is refused, measured after trimming",
+  (() => {
+    const exact = validateOpeningMessage("x".repeat(OPENING_MESSAGE_MAX_LENGTH));
+    const over = validateOpeningMessage(
+      "x".repeat(OPENING_MESSAGE_MAX_LENGTH + 1),
+    );
+    const padded = validateOpeningMessage(
+      `   ${"x".repeat(OPENING_MESSAGE_MAX_LENGTH)}   `,
+    );
+    return (
+      OPENING_MESSAGE_MAX_LENGTH === 600 &&
+      exact.ok &&
+      exact.message?.length === 600 &&
+      !over.ok &&
+      /600/.test(over.error) &&
+      padded.ok &&
+      padded.message?.length === 600
+    );
+  })(),
+);
+
+check(
+  "O10b null means cleared and is accepted; anything that is not text is refused",
+  (() => {
+    const cleared = validateOpeningMessage(null);
+    const blank = validateOpeningMessage("   ");
+    return (
+      cleared.ok &&
+      cleared.message === null &&
+      blank.ok &&
+      blank.message === null &&
+      !validateOpeningMessage(42).ok &&
+      !validateOpeningMessage({ text: "hi" }).ok &&
+      !validateOpeningMessage(["hi"]).ok
+    );
+  })(),
+);
+
+check(
+  "O10c the Admin form trims, allows blank, and refuses 601 characters",
+  (() => {
+    const ok = EmailSettingsFormSchema.safeParse({
+      opening_message_enabled: true,
+      opening_message: `  ${COMMON_MESSAGE}  `,
+    });
+    const blank = EmailSettingsFormSchema.safeParse({
+      opening_message_enabled: false,
+      opening_message: "",
+    });
+    const over = EmailSettingsFormSchema.safeParse({
+      opening_message_enabled: true,
+      opening_message: "y".repeat(601),
+    });
+    return (
+      ok.success &&
+      ok.data.opening_message === COMMON_MESSAGE &&
+      blank.success &&
+      !over.success
+    );
+  })(),
+);
+
+check(
+  "O11 the opening message is escaped in the HTML body, with line breaks kept",
+  (() => {
+    const hostile = 'Use <b>email</b> & "reply"\nNot <script>alert(1)</script>';
+    const html = renderDocumentEmail(snapshotWithOpening(hostile)).html;
+    return (
+      html.includes(
+        "Use &lt;b&gt;email&lt;/b&gt; &amp; &quot;reply&quot;<br />Not &lt;script&gt;alert(1)&lt;/script&gt;",
+      ) &&
+      !html.includes("<script") &&
+      !html.includes("<b>email")
+    );
+  })(),
+);
+
+check(
+  "O12 a PLACEMENT-06A snapshot with no opening_message key still parses and renders",
+  (() => {
+    // Exactly what a version 1 row looks like: no key at all, version 1.
+    const v1 = JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
+    delete v1.opening_message;
+    v1.version = 1;
+    const reread = parseStoredSnapshot(v1);
+    if (!reread) return false;
+    const renderedV1 = renderDocumentEmail(reread);
+    return (
+      !("opening_message" in reread) &&
+      storedOpeningMessage(reread) === null &&
+      renderedV1.text === rendered.text &&
+      renderedV1.html === rendered.html
+    );
+  })(),
+);
+
+check(
+  "O12b a stored version 2 snapshot reads back its exact message and re-renders identically",
+  (() => {
+    const stored = JSON.parse(JSON.stringify(withCommon)) as unknown;
+    const reread = parseStoredSnapshot(stored);
+    return (
+      reread !== null &&
+      storedOpeningMessage(reread) === COMMON_MESSAGE &&
+      renderDocumentEmail(reread).text === renderedWithCommon.text &&
+      renderDocumentEmail(reread).html === renderedWithCommon.html
+    );
+  })(),
+);
+
+check(
+  "O12c the history is not rebuilt from today's setting",
+  (() => {
+    // The stored snapshot said one thing. The Admin setting now says another.
+    // Rendering the stored snapshot must produce the stored thing.
+    const stored = parseStoredSnapshot(
+      JSON.parse(JSON.stringify(snapshotWithOpening("Old notice."))),
+    );
+    const todaysSetting = settingsRow(true, "New notice.");
+    return (
+      stored !== null &&
+      effectiveOpeningMessage(todaysSetting) === "New notice." &&
+      renderDocumentEmail(stored).text.includes("Old notice.") &&
+      !renderDocumentEmail(stored).text.includes("New notice.")
+    );
+  })(),
+);
+
+check(
+  "O12d a snapshot whose opening_message is somehow not text renders none",
+  (() => {
+    const odd = {
+      ...withCommon,
+      opening_message: { unexpected: true },
+    } as unknown as DocumentEmailSnapshot;
+    return (
+      storedOpeningMessage(odd) === null &&
+      renderDocumentEmail(odd).text === rendered.text
+    );
+  })(),
+);
+
+check(
+  "O13 the internal note still never appears, opening message or not",
+  !renderedWithCommon.text.includes(INTERNAL_NOTE) &&
+    !renderedWithCommon.html.includes(INTERNAL_NOTE) &&
+    !JSON.stringify(withCommon).includes(INTERNAL_NOTE),
+);
+
+check(
+  "O14 the Admin helper text is the agreed student-facing warning",
+  OPENING_MESSAGE_HELPER_TEXT ===
+    "This message appears near the top of placement document emails. Keep it student-facing and do not include confidential or medical information.",
+);
+
+check(
+  "O15 saving the Admin setting cannot send: the settings action never touches the send path",
+  (() => {
+    const source = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "src",
+        "lib",
+        "documents",
+        "email-settings-actions.ts",
+      ),
+      "utf8",
+    );
+    // Imports, not prose: the file's comments talk about the very things it
+    // must not import.
+    return (
+      !/from "\.\/email-actions"/.test(source) &&
+      !/from "@\/lib\/email\/resend"/.test(source) &&
+      !/from "@\/lib\/supabase\/service"/.test(source) &&
+      !source.includes("sendPlacementEmail(") &&
+      !source.includes("createSupabaseServiceRoleClient(") &&
+      source.includes("isAdmin(session)")
+    );
+  })(),
+);
+
+check(
+  "O16 the send path validates the submitted message and still re-composes the checklist on the server",
+  (() => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src", "lib", "documents", "email-actions.ts"),
+      "utf8",
+    );
+    const individual = source.slice(
+      source.indexOf("export async function sendStudentDocumentEmailAction"),
+      source.indexOf("// Batch reminders"),
+    );
+    const batch = source.slice(
+      source.indexOf("export async function sendBatchDocumentRemindersAction"),
+    );
+    return (
+      individual.includes("validateOpeningMessage(input.openingMessage)") &&
+      individual.includes("composeStudentDocumentEmail(") &&
+      // The browser hands over an opening message and nothing about documents.
+      !individual.includes("input.snapshot") &&
+      !individual.includes("input.entries") &&
+      batch.includes("customOpeningMessages") &&
+      batch.includes("composeStudentDocumentEmail(") &&
+      // Every customized message goes through the same schema, inside the
+      // bulk input schema, before the first email is sent.
+      source.includes("openingMessage: OpeningMessageSchema")
+    );
+  })(),
+);
+
+check(
+  "O16b a batch send uses the REVIEWED default it was given and never re-reads the Admin setting",
+  (() => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src", "lib", "documents", "email-actions.ts"),
+      "utf8",
+    );
+    const batch = source.slice(
+      source.indexOf("export async function sendBatchDocumentRemindersAction"),
+    );
+    return (
+      // Required on the input, validated by the same schema as every message.
+      source.includes("defaultOpeningMessage: OpeningMessageSchema") &&
+      batch.includes("parsed.data") &&
+      batch.includes("defaultOpeningMessage") &&
+      !batch.includes("getCommonOpeningMessage(")
+    );
+  })(),
+);
+
+check(
+  "O16c the review screen submits its own displayed default and previews with it",
+  (() => {
+    const panel = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "src",
+        "components",
+        "documents",
+        "BatchReminderPanel.tsx",
+      ),
+      "utf8",
+    );
+    return (
+      panel.includes("defaultOpeningMessage: commonOpeningMessage") &&
+      // Previews of non-customized students use the session's default too,
+      // rather than leaving the server to look up today's value.
+      /openingMessage: customMessages\.has\(studentId\)\s*\?[^:]*:\s*commonOpeningMessage/.test(
+        panel,
+      )
+    );
+  })(),
+);
+
+check(
+  "O16d Message A reviewed, Admin changes to Message B, the reviewed batch still sends A and a new review sees B",
+  (() => {
+    // The review page loads: the enabled common message is resolved ONCE.
+    let adminSetting = settingsRow(true, "Message A");
+    const reviewedDefault = effectiveOpeningMessage(adminSetting);
+
+    // The admin changes Email Settings while the review screen is open.
+    adminSetting = settingsRow(true, "Message B");
+
+    // The already-open review is sent. The submission carries the reviewed
+    // default and one customization; the server resolves per student from the
+    // SUBMISSION, exactly as sendBatchDocumentRemindersAction does.
+    const submission = {
+      defaultOpeningMessage: reviewedDefault,
+      customOpeningMessages: [
+        { studentId: "student-b", openingMessage: "Custom for B." },
+      ],
+    };
+    const custom = new Map(
+      submission.customOpeningMessages.map((entry) => [
+        entry.studentId,
+        entry.openingMessage,
+      ]),
+    );
+    const resolve = (id: string) =>
+      custom.has(id)
+        ? (custom.get(id) ?? null)
+        : submission.defaultOpeningMessage;
+
+    const a = snapshotWithOpening(resolve("student-a"));
+    const b = snapshotWithOpening(resolve("student-b"));
+
+    // A NEW review opened afterwards resolves the setting again.
+    const newReviewDefault = effectiveOpeningMessage(adminSetting);
+
+    return (
+      reviewedDefault === "Message A" &&
+      a.opening_message === "Message A" &&
+      renderDocumentEmail(a).text.includes("Message A") &&
+      !renderDocumentEmail(a).text.includes("Message B") &&
+      b.opening_message === "Custom for B." &&
+      newReviewDefault === "Message B"
+    );
+  })(),
+);
+
+// The 0009 migration: who may read, who may write, and what the column allows.
+
+const migration0009 = migrationStatements("0009_placement_email_settings");
+
+check(
+  "O17 every active staff member may read the setting",
+  /create policy "staff read placement email settings"\s+on public\.placement_email_settings for select\s+to authenticated\s+using \(public\.is_active_staff\(\)\)/.test(
+    migration0009,
+  ),
+);
+
+check(
+  "O17b only an admin may update it, checked by the existing is_admin() helper",
+  /create policy "admin update placement email settings"\s+on public\.placement_email_settings for update\s+to authenticated\s+using \(public\.is_admin\(\)\)\s+with check \(public\.is_admin\(\)\)/.test(
+    migration0009,
+  ) &&
+    !/create policy[^;]*on public\.placement_email_settings for (insert|delete)/i.test(
+      migration0009,
+    ),
+);
+
+check(
+  "O17c grants are select and update for authenticated, nothing for anon, nothing new for the service role",
+  migration0009.includes(
+    "revoke all on public.placement_email_settings from anon;",
+  ) &&
+    migration0009.includes(
+      "revoke all on public.placement_email_settings from authenticated;",
+    ) &&
+    migration0009.includes(
+      "grant select, update on public.placement_email_settings to authenticated;",
+    ) &&
+    !/grant[^;]*(insert|delete)[^;]*on public\.placement_email_settings/i.test(
+      migration0009,
+    ) &&
+    !/service_role/i.test(migration0009),
+);
+
+check(
+  "O17d the 600 character limit is a database constraint, and the row is a singleton",
+  migration0009.includes("check (length(opening_message) <= 600)") &&
+    migration0009.includes("check (id = 1)") &&
+    /insert into public\.placement_email_settings[^;]*values \(1, false, ''\)/.test(
+      migration0009,
+    ),
+);
+
+check(
+  "O17e the migration touches no existing table",
+  !/alter table public\.(students|student_email_log|student_placement_documents|batches|placement_document_requirements)/i.test(
+    migration0009,
+  ) &&
+    !/(update|delete from) public\.student_email_log/i.test(migration0009),
 );
 
 // ---------------------------------------------------------------------------

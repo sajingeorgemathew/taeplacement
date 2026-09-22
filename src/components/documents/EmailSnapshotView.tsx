@@ -1,8 +1,9 @@
 import { CheckCircle2, CircleAlert } from "lucide-react";
 
-import type {
-  DocumentEmailSnapshot,
-  EmailRequirementLine,
+import {
+  storedOpeningMessage,
+  type DocumentEmailSnapshot,
+  type EmailRequirementLine,
 } from "@/lib/documents/email-content";
 
 /**
@@ -81,6 +82,11 @@ export default function EmailSnapshotView({
   /** The exact text that was, or would be, sent. */
   bodyText?: string;
 }) {
+  // Read from the snapshot, like everything else here. In the preview it is
+  // the message being reviewed; in the history it is the message that was
+  // sent, and an email from before the feature existed has none.
+  const openingMessage = storedOpeningMessage(snapshot);
+
   return (
     <div className="flex flex-col gap-5">
       <dl className="grid gap-3 rounded-2xl border border-line bg-surface-muted p-5 sm:grid-cols-[auto_1fr]">
@@ -96,6 +102,12 @@ export default function EmailSnapshotView({
         <p className="text-[17px] text-ink">
           Hi {snapshot.student.first_name},
         </p>
+
+        {openingMessage ? (
+          <p className="mt-4 whitespace-pre-line break-words rounded-xl border border-info-line bg-info-soft px-5 py-4 text-[17px] text-info-ink">
+            {openingMessage}
+          </p>
+        ) : null}
 
         <Section
           title="Completed"

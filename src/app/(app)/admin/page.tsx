@@ -1,4 +1,4 @@
-import { FileCheck, Layers, Map, MapPin } from "lucide-react";
+import { FileCheck, Layers, Mail, Map, MapPin } from "lucide-react";
 
 import ModulePlaceholder from "@/components/ui/ModulePlaceholder";
 import PageHeader from "@/components/ui/PageHeader";
@@ -47,6 +47,12 @@ export default function AdminPage() {
             description="Decide which Placement Area each student city belongs to. This is what groups a batch by area in Batch Planning."
             href="/admin/city-area-mapping"
             icon={MapPin}
+          />
+          <QuickAccessCard
+            title="Email Settings"
+            description="The common opening message that placement document emails start with. Saving it never sends an email."
+            href="/admin/email-settings"
+            icon={Mail}
           />
         </div>
       </section>

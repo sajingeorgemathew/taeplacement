@@ -45,6 +45,7 @@ import {
   type DocumentEmailSnapshot,
   type EmailReadinessSummary,
 } from "./email-content";
+import { getCommonOpeningMessage } from "./email-settings-queries";
 import { renderDocumentEmail, type RenderedEmail } from "./email-template";
 import { getStudentChecklist, getStudentReadiness } from "./queries";
 
@@ -69,6 +70,8 @@ export type ComposedEmail = {
   rendered: RenderedEmail;
   /** How many items the student is being asked to act on. */
   actionNeededCount: number;
+  /** The opening message this email carries, or null. Same value as the snapshot's. */
+  openingMessage: string | null;
 };
 
 export type ComposeFailure =
@@ -91,11 +94,30 @@ export type ComposeResult =
  * requireActionNeeded is what makes a reminder a reminder. A fully ready
  * student may receive a status email on purpose, but they are never reminded of
  * nothing.
+ *
+ * openingMessage decides what the email opens with, directly after the
+ * greeting:
+ *
+ *   undefined   nobody has decided yet: use the COMMON Admin message, read
+ *               fresh here, or none if it is disabled or blank. This is what a
+ *               preview opens with.
+ *   string      a staff member reviewed and approved this exact wording for
+ *               this one send. Callers validate it BEFORE it gets here.
+ *   null        a staff member cleared it for this one send.
+ *
+ * Whichever it is, ONLY the opening message comes from the caller. The student,
+ * the recipient address, the checklist, and the readiness are all re-read from
+ * the database in this function, every time, so an approved opening message
+ * always travels with the student's CURRENT document list.
  */
 export async function composeStudentDocumentEmail(
   studentId: string,
   sendType: StudentEmailType,
-  options: { requireActionNeeded?: boolean; generatedAt?: Date } = {},
+  options: {
+    requireActionNeeded?: boolean;
+    generatedAt?: Date;
+    openingMessage?: string | null;
+  } = {},
 ): Promise<ComposeResult> {
   await requireActiveStaff();
   const supabase = await createSupabaseServerClient();
@@ -111,9 +133,12 @@ export async function composeStudentDocumentEmail(
   const recipientEmail = normalizeEmail(student.email);
   if (!recipientEmail) return { ok: false, reason: "no_email" };
 
-  const [items, readiness] = await Promise.all([
+  const [items, readiness, openingMessage] = await Promise.all([
     getStudentChecklist(student.id),
     getStudentReadiness(student.id),
+    options.openingMessage === undefined
+      ? getCommonOpeningMessage()
+      : Promise.resolve(options.openingMessage),
   ]);
 
   // emailEntriesFrom cannot see document.note: its parameter type has no such
@@ -140,6 +165,7 @@ export async function composeStudentDocumentEmail(
     readiness: readinessSummary(readiness),
     sendType,
     generatedAt: (options.generatedAt ?? new Date()).toISOString(),
+    openingMessage,
   });
 
   if (!hasSendableContent(snapshot)) {
@@ -155,6 +181,7 @@ export async function composeStudentDocumentEmail(
       snapshot,
       rendered: renderDocumentEmail(snapshot),
       actionNeededCount,
+      openingMessage: snapshot.opening_message ?? null,
     },
   };
 }

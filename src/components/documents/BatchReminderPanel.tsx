@@ -1,6 +1,6 @@
 "use client";
 
-import { Mail, Send } from "lucide-react";
+import { Mail, MessageSquareText, Send } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 
 import ActionDialog from "@/components/ui/ActionDialog";
@@ -11,10 +11,15 @@ import {
   type EmailPreview,
 } from "@/lib/documents/email-actions";
 import type { BatchReminderReview } from "@/lib/documents/email-queries";
+import {
+  normalizeOpeningMessage,
+  OPENING_MESSAGE_MAX_LENGTH,
+} from "@/lib/documents/email-settings";
 import { NO_EMAIL_MESSAGE } from "@/lib/email/address";
 import { formatTimestamp, timeAgoLabel } from "@/lib/format";
 
 import EmailSnapshotView from "./EmailSnapshotView";
+import OpeningMessageEditor from "./OpeningMessageEditor";
 
 const OUTLINE_BUTTON =
   "inline-flex items-center gap-2 rounded-2xl border border-line bg-surface px-5 py-3.5 text-[16px] font-medium text-ink transition-colors hover:border-brand hover:bg-brand-soft hover:text-brand-strong disabled:opacity-60";
@@ -54,15 +59,41 @@ const SMALL_BUTTON =
  *
  * Every selected student receives their own email. Nobody is ever BCC'd, so no
  * student can see another student's address.
+ *
+ * ---------------------------------------------------------------------------
+ * The opening message
+ * ---------------------------------------------------------------------------
+ *
+ * The common Admin message is resolved by the page when it LOADS, shown once at
+ * the top, and becomes this review session's REVIEWED BATCH DEFAULT. It is
+ * what every non-customized student gets, and Send submits it to the server
+ * verbatim beside the per-student customizations. The server uses what was
+ * submitted and never re-reads the Admin setting for this send: what staff
+ * reviewed is what is sent. An admin changing Email Settings while this screen
+ * is open changes the NEXT review, not this one.
+ *
+ * A staff member may customize the message for one student, from that
+ * student's row, and the customization is held here, in this screen's state,
+ * until Send submits it beside that student's id. It is written nowhere else:
+ * not to the Admin setting, not to the student, and not to any other student
+ * in the group. Reset to common restores THIS session's reviewed default.
  */
 export default function BatchReminderPanel({
   batchId,
   batchName,
   review,
+  commonOpeningMessage,
 }: {
   batchId: string;
   batchName: string;
   review: BatchReminderReview;
+  /**
+   * The common message as it stood when this page loaded, or null when it was
+   * disabled or blank. This exact value is the reviewed batch default: shown
+   * here, used for every preview of a non-customized student, and submitted
+   * with the send.
+   */
+  commonOpeningMessage: string | null;
 }) {
   const eligible = useMemo(
     () =>
@@ -101,6 +132,55 @@ export default function BatchReminderPanel({
   const [loadingPreview, startPreview] = useTransition();
 
   /**
+   * Per-student opening messages, for the students customized on this screen.
+   *
+   * A student who is not a key uses the common message. A string value is
+   * their custom wording; a null value means the message was cleared for them.
+   * This map is the only place a customization lives until Send.
+   */
+  const [customMessages, setCustomMessages] = useState<
+    Map<string, string | null>
+  >(() => new Map());
+  const [customizing, setCustomizing] = useState<string | null>(null);
+  const [customDraft, setCustomDraft] = useState("");
+
+  function openCustomize(studentId: string) {
+    setCustomizing(studentId);
+    setCustomDraft(
+      customMessages.has(studentId)
+        ? (customMessages.get(studentId) ?? "")
+        : (commonOpeningMessage ?? ""),
+    );
+  }
+
+  function saveCustomization() {
+    if (!customizing) return;
+    const normalized = normalizeOpeningMessage(customDraft);
+    setCustomMessages((current) => {
+      const next = new Map(current);
+      // Typing the common message back in is not a customization.
+      if (normalized === commonOpeningMessage) next.delete(customizing);
+      else next.set(customizing, normalized);
+      return next;
+    });
+    setCustomizing(null);
+  }
+
+  function resetToCommon(studentId: string) {
+    setCustomMessages((current) => {
+      const next = new Map(current);
+      next.delete(studentId);
+      return next;
+    });
+    setCustomizing(null);
+  }
+
+  const customDraftTooLong = customDraft.length > OPENING_MESSAGE_MAX_LENGTH;
+  const customizingCandidate = customizing
+    ? eligible.find((candidate) => candidate.studentId === customizing) ?? null
+    : null;
+
+  /**
    * One id for one submission. Every student in this send gets an idempotency
    * key built from it, so a retried request cannot email anybody twice. It is
    * cleared once the send finishes, because a deliberate second send is a new
@@ -133,6 +213,13 @@ export default function BatchReminderPanel({
       const outcome = await previewStudentDocumentEmailAction({
         studentId,
         sendType: "document_reminder",
+        // A customized student previews with their own wording. Everyone else
+        // previews with THIS session's reviewed default, which is exactly what
+        // the send will submit for them. The preview never asks the server for
+        // today's Admin value.
+        openingMessage: customMessages.has(studentId)
+          ? (customMessages.get(studentId) ?? null)
+          : commonOpeningMessage,
       });
       if (outcome.ok) setPreview(outcome.preview);
       else setPreviewError(outcome.error);
@@ -144,20 +231,35 @@ export default function BatchReminderPanel({
     if (!sendGroupId.current) sendGroupId.current = crypto.randomUUID();
     const groupId = sendGroupId.current;
 
+    // Only the customizations for students actually in this send.
+    const customOpeningMessages = [...customMessages.entries()]
+      .filter(([studentId]) => selected.has(studentId))
+      .map(([studentId, openingMessage]) => ({ studentId, openingMessage }));
+
     startSending(async () => {
       const outcome = await sendBatchDocumentRemindersAction({
         batchId,
         sendGroupId: groupId,
         studentIds: [...selected],
+        // The reviewed batch default, exactly as this screen displayed it.
+        defaultOpeningMessage: commonOpeningMessage,
+        customOpeningMessages,
       });
       setResult(outcome);
       setConfirming(false);
       sendGroupId.current = null;
-      if (!outcome.error) setSelected(new Set());
+      if (!outcome.error) {
+        setSelected(new Set());
+        // The customizations belonged to that send group and went with it.
+        setCustomMessages(new Map());
+      }
     });
   }
 
   const selectedCount = selected.size;
+  const customizedSelectedCount = [...customMessages.keys()].filter((id) =>
+    selected.has(id),
+  ).length;
 
   return (
     <div className="flex flex-col gap-8">
@@ -189,6 +291,41 @@ export default function BatchReminderPanel({
           not listed. Not Reviewed means the placement team has not checked that
           document yet, so it is never presented to a student as outstanding.
         </p>
+      </div>
+
+      <div className="rounded-3xl border border-line bg-surface p-7">
+        <div className="flex items-start gap-4">
+          <MessageSquareText
+            size={24}
+            aria-hidden="true"
+            className="mt-0.5 shrink-0 text-brand-strong"
+          />
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[20px] font-semibold tracking-tight text-ink">
+              Opening message
+            </h3>
+            {commonOpeningMessage ? (
+              <>
+                <p className="mt-2 text-[16px] text-ink-muted">
+                  Every reminder in this send opens with the message below,
+                  exactly as shown, unless you customize it for a student. If
+                  the Admin setting changes, reload this page to review the new
+                  wording.
+                </p>
+                <p className="mt-3 whitespace-pre-line break-words rounded-xl border border-info-line bg-info-soft px-5 py-4 text-[17px] text-info-ink">
+                  {commonOpeningMessage}
+                </p>
+              </>
+            ) : (
+              <p className="mt-2 text-[16px] text-ink-muted">
+                No common opening message is enabled, so reminders start with
+                the usual introduction. You can still add one for an individual
+                student from their row. An admin can set a common message under
+                Admin, Email Settings.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       {result ? (
@@ -260,6 +397,8 @@ export default function BatchReminderPanel({
             {eligible.map((candidate) => {
               const checked = selected.has(candidate.studentId);
               const recent = candidate.lastEmailedAt;
+              const isCustomized = customMessages.has(candidate.studentId);
+              const customMessage = customMessages.get(candidate.studentId);
 
               return (
                 <li
@@ -295,18 +434,52 @@ export default function BatchReminderPanel({
                             {formatTimestamp(recent)})
                           </span>
                         ) : null}
+                        {isCustomized ? (
+                          <span className="block text-[16px] text-info-ink">
+                            {customMessage
+                              ? "Custom opening message for this student"
+                              : "Opening message removed for this student"}
+                          </span>
+                        ) : null}
                       </span>
                     </label>
 
-                    <button
-                      type="button"
-                      onClick={() => openPreview(candidate.studentId)}
-                      className={`${SMALL_BUTTON} shrink-0`}
-                    >
-                      <Mail size={18} aria-hidden="true" />
-                      Preview Student
-                    </button>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={sending}
+                        onClick={() => openCustomize(candidate.studentId)}
+                        className={SMALL_BUTTON}
+                      >
+                        <MessageSquareText size={18} aria-hidden="true" />
+                        {isCustomized ? "Edit Message" : "Customize"}
+                      </button>
+                      {isCustomized ? (
+                        <button
+                          type="button"
+                          disabled={sending}
+                          onClick={() => resetToCommon(candidate.studentId)}
+                          className={SMALL_BUTTON}
+                        >
+                          Reset to common
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => openPreview(candidate.studentId)}
+                        className={SMALL_BUTTON}
+                      >
+                        <Mail size={18} aria-hidden="true" />
+                        Preview Student
+                      </button>
+                    </div>
                   </div>
+
+                  {isCustomized && customMessage ? (
+                    <p className="mt-4 whitespace-pre-line break-words border-t border-line pt-4 text-[16px] text-ink-muted">
+                      {customMessage}
+                    </p>
+                  ) : null}
                 </li>
               );
             })}
@@ -367,6 +540,15 @@ export default function BatchReminderPanel({
           Nobody is copied on anybody else&apos;s email. Each send is recorded
           permanently in that student&apos;s Email History.
         </p>
+        <p className="mt-3 text-[16px] text-ink-muted">
+          {commonOpeningMessage
+            ? customizedSelectedCount > 0
+              ? `Emails open with the common opening message, except ${countLabel(customizedSelectedCount, "student")} with a customized one.`
+              : "Every email opens with the common opening message."
+            : customizedSelectedCount > 0
+              ? `${countLabel(customizedSelectedCount, "student")} ${customizedSelectedCount === 1 ? "has" : "have"} a customized opening message. The rest have none.`
+              : "No opening message is included."}
+        </p>
         <div className="mt-7 flex flex-wrap justify-end gap-3">
           <button
             type="button"
@@ -411,6 +593,51 @@ export default function BatchReminderPanel({
             bodyText={preview.bodyText}
           />
         ) : null}
+      </ActionDialog>
+
+      <ActionDialog
+        open={customizing !== null}
+        onClose={() => setCustomizing(null)}
+        title="Opening message for this student"
+        subtitle={customizingCandidate?.studentName}
+      >
+        <p className="text-[16px] text-ink-muted">
+          This wording is used only in this student&apos;s reminder, in this
+          send. The common message and every other student are unchanged.
+        </p>
+        <div className="mt-5">
+          <OpeningMessageEditor
+            value={customDraft}
+            commonMessage={commonOpeningMessage}
+            onChange={setCustomDraft}
+          />
+        </div>
+        <div className="mt-7 flex flex-wrap justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => setCustomizing(null)}
+            className={OUTLINE_BUTTON}
+          >
+            Cancel
+          </button>
+          {customizing && customMessages.has(customizing) ? (
+            <button
+              type="button"
+              onClick={() => resetToCommon(customizing)}
+              className={OUTLINE_BUTTON}
+            >
+              Reset to common
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={customDraftTooLong}
+            onClick={saveCustomization}
+            className={PRIMARY_BUTTON}
+          >
+            Use for this student
+          </button>
+        </div>
       </ActionDialog>
     </div>
   );

@@ -4,6 +4,7 @@ import BatchReminderPanel from "@/components/documents/BatchReminderPanel";
 import BackLink from "@/components/ui/BackLink";
 import { canManageDocuments, getStaffSession } from "@/lib/auth/session";
 import { getBatchReminderReview } from "@/lib/documents/email-queries";
+import { getCommonOpeningMessage } from "@/lib/documents/email-settings-queries";
 import { getBatch } from "@/lib/students/queries";
 
 export const metadata = {
@@ -55,7 +56,15 @@ export default async function BatchDocumentRemindersPage(
     );
   }
 
-  const review = await getBatchReminderReview(batch.id);
+  // The common opening message is resolved HERE, once, when the review screen
+  // loads, and becomes the reviewed batch default: shown on the screen, and
+  // submitted verbatim with the send. The send action uses the submitted text
+  // and does not re-read the Admin setting, so what staff reviewed is what is
+  // sent.
+  const [review, commonOpeningMessage] = await Promise.all([
+    getBatchReminderReview(batch.id),
+    getCommonOpeningMessage(),
+  ]);
 
   return (
     <>
@@ -79,6 +88,7 @@ export default async function BatchDocumentRemindersPage(
         batchId={batch.id}
         batchName={batch.name}
         review={review}
+        commonOpeningMessage={commonOpeningMessage}
       />
     </>
   );
