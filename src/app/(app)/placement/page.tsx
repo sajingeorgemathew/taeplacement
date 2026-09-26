@@ -21,11 +21,16 @@ import {
 } from "@/lib/placement/queries";
 import {
   hasActivePlacementFilters,
+  isCurrentOperationsView,
   placementFiltersFrom,
   placementHref,
   placementToolbarValuesFrom,
   placementViewFrom,
 } from "@/lib/placement/filters";
+import {
+  ALL_STUDENTS_VALUE,
+  OPERATIONS_PARAM,
+} from "@/lib/placement/operations";
 import { listBatches } from "@/lib/students/queries";
 
 export const metadata = {
@@ -35,6 +40,15 @@ export const metadata = {
 const BASE_PATH = "/placement";
 const PLANNING_PATH = "/placement/planning";
 
+/** Batch Planning, keeping the chosen batch and an explicit Show All scope. */
+function planningLink(batchId: string, currentOperations: boolean): string {
+  const params = new URLSearchParams();
+  if (batchId) params.set("batch", batchId);
+  if (!currentOperations) params.set(OPERATIONS_PARAM, ALL_STUDENTS_VALUE);
+  const query = params.toString();
+  return query ? `${PLANNING_PATH}?${query}` : PLANNING_PATH;
+}
+
 export default async function PlacementPage(
   props: PageProps<"/placement">,
 ) {
@@ -42,10 +56,13 @@ export default async function PlacementPage(
   const values = placementToolbarValuesFrom(searchParams);
   const view = placementViewFrom(values);
 
+  const filters = placementFiltersFrom(values);
   const [students, counts, batches, areas, partners, session] =
     await Promise.all([
-      listPlacementStudents(placementFiltersFrom(values)),
-      getPlacementCounts(),
+      listPlacementStudents(filters),
+      // The summary blocks count the same population the page shows, so a
+      // block and the list its link opens always agree.
+      getPlacementCounts({ currentOperations: filters.currentOperations }),
       listBatches(),
       listPlacementAreas(),
       listPartners(),
@@ -54,6 +71,15 @@ export default async function PlacementPage(
 
   const canManage = canManagePlacements(session);
   const filtered = hasActivePlacementFilters(values);
+  const currentOperations = isCurrentOperationsView(values);
+  const shownLabel = currentOperations
+    ? `${studentCountLabel(students.length)} in current placement operations`
+    : `${studentCountLabel(students.length)} across all batches`;
+  // Summary links keep the scope staff chose; the default scope needs nothing
+  // in the URL.
+  const scopeQuery = currentOperations
+    ? ""
+    : `&${OPERATIONS_PARAM}=${ALL_STUDENTS_VALUE}`;
   const activeAreas = areas.filter((area) => area.is_active);
   // One today for the whole board, resolved on the server, so every card reads
   // its planned and actual dates against the same day.
@@ -81,7 +107,7 @@ export default async function PlacementPage(
             note="Documents complete. These students are waiting for a partner."
             tone="ready"
             icon={UserCheck}
-            href={`${BASE_PATH}?view=list&status=ready_for_placement`}
+            href={`${BASE_PATH}?view=list&status=ready_for_placement${scopeQuery}`}
           />
           <SummaryBlock
             label="Placement Assigned"
@@ -89,7 +115,7 @@ export default async function PlacementPage(
             note="Matched with a placement partner."
             tone="info"
             icon={Building2}
-            href={`${BASE_PATH}?view=list&status=placement_assigned`}
+            href={`${BASE_PATH}?view=list&status=placement_assigned${scopeQuery}`}
           />
           <SummaryBlock
             label="On Placement"
@@ -97,7 +123,7 @@ export default async function PlacementPage(
             note="At their partner right now. Finished, never cancelled."
             tone="ready"
             icon={ClipboardList}
-            href={`${BASE_PATH}?view=list&status=placement_started`}
+            href={`${BASE_PATH}?view=list&status=placement_started${scopeQuery}`}
           />
           <SummaryBlock
             label="On Hold"
@@ -105,7 +131,7 @@ export default async function PlacementPage(
             note="Paused on purpose. Released by staff, never automatically."
             tone="attention"
             icon={PauseCircle}
-            href={`${BASE_PATH}?view=list&status=on_hold`}
+            href={`${BASE_PATH}?view=list&status=on_hold${scopeQuery}`}
           />
           <SummaryBlock
             label="Placement Completed"
@@ -113,7 +139,7 @@ export default async function PlacementPage(
             note="Their whole placement requirement is finished. Off the working board."
             tone="ready"
             icon={CheckCircle2}
-            href={`${BASE_PATH}?view=list&status=placement_completed`}
+            href={`${BASE_PATH}?view=list&status=placement_completed${scopeQuery}`}
           />
         </div>
       </section>
@@ -122,13 +148,10 @@ export default async function PlacementPage(
         <PlacementViewSwitch
           current={view}
           boardHref={placementHref(BASE_PATH, values, { view: "" })}
-          // The batch already chosen here carries into planning, so switching
-          // views keeps the batch a planner is looking at.
-          planningHref={
-            values.batch
-              ? `${PLANNING_PATH}?batch=${encodeURIComponent(values.batch)}`
-              : PLANNING_PATH
-          }
+          // The batch already chosen here carries into planning, and so does
+          // an explicit Show All scope, so switching views keeps the batch a
+          // planner is looking at even when it is a historical one.
+          planningHref={planningLink(values.batch, currentOperations)}
           listHref={placementHref(BASE_PATH, values, { view: "list" })}
         />
         <PlacementToolbar
@@ -151,8 +174,8 @@ export default async function PlacementPage(
           </h2>
           <p className="mb-6 text-[17px] text-ink-muted">
             {filtered
-              ? `Showing ${studentCountLabel(students.length)} for the current search.`
-              : `The six columns staff work in, ending with the students who are at a partner right now. A student whose placement ends without finishing their requirement comes back here, ready to be placed again. Only a student whose whole requirement is complete leaves the board.`}
+              ? `Showing ${shownLabel} for the current search and filters.`
+              : `Showing ${shownLabel}. The six columns staff work in, ending with the students who are at a partner right now. A student whose placement ends without finishing their requirement comes back here, ready to be placed again. Only a student whose whole requirement is complete leaves the board.`}
           </p>
 
           <PlacementBoard
@@ -167,12 +190,14 @@ export default async function PlacementPage(
             id="placement-list-heading"
             className="mb-2 text-[26px] font-semibold tracking-tight text-ink"
           >
-            All Students
+            {currentOperations ? "Current Placement Operations" : "All Students"}
           </h2>
           <p className="mb-6 text-[17px] text-ink-muted">
             {filtered
-              ? `Showing ${studentCountLabel(students.length)} for the current search and filters.`
-              : `Every active student, including those whose placement requirement is already complete. Showing all ${studentCountLabel(students.length)}.`}
+              ? `Showing ${shownLabel} for the current search and filters.`
+              : currentOperations
+                ? `Active students in batches tracked in Placement Operations, including those whose placement requirement is already complete. Showing ${shownLabel}.`
+                : `Every active student, including untracked and archived batches and those whose placement requirement is already complete. Showing ${shownLabel}.`}
           </p>
 
           <PlacementList
@@ -180,7 +205,9 @@ export default async function PlacementPage(
             emptyMessage={
               filtered
                 ? "No students match this search. Try clearing the filters."
-                : "There are no students yet."
+                : currentOperations
+                  ? "No students are in current placement operations yet. Switch a batch on in Batch Management, or choose Show All Students."
+                  : "There are no students yet."
             }
           />
         </section>

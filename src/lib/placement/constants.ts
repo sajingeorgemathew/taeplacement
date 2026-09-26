@@ -184,9 +184,40 @@ export const BATCH_STATUS_LABELS: Record<BatchStatus, string> = {
   archived: "Archived",
 };
 
-/** The only program the academy runs today. Kept as free text in the database. */
-export const DEFAULT_PROGRAM = "PSW";
-export const PROGRAM_OPTIONS = ["PSW"] as const;
+/**
+ * The programs the academy runs placement for.
+ *
+ * PSW and ECEA are two operational LANES through one and the same placement
+ * lifecycle (documents, ready, assigned, on placement, completed). There is no
+ * separate ECEA engine, no ECEA table, and no ECEA status vocabulary.
+ *
+ * students.program and batches.program stay free text in the database, exactly
+ * as 0001 created them. This list is what the forms offer and what the program
+ * filters and the program dashboard recognise; a stored value outside it is
+ * shown as it is and simply does not match either filter.
+ */
+export const PROGRAM_OPTIONS = ["PSW", "ECEA"] as const;
+export type Program = (typeof PROGRAM_OPTIONS)[number];
+
+export const PROGRAM_LABELS: Record<Program, string> = {
+  PSW: "PSW",
+  ECEA: "ECEA",
+};
+
+/** Personal Support Worker / Early Childhood Education Assistant. */
+export const PROGRAM_FULL_NAMES: Record<Program, string> = {
+  PSW: "Personal Support Worker",
+  ECEA: "Early Childhood Education Assistant",
+};
+
+/** New students and batches start as PSW, the program that existed first. */
+export const DEFAULT_PROGRAM: Program = "PSW";
+
+export function isProgram(value: unknown): value is Program {
+  return (
+    typeof value === "string" && PROGRAM_OPTIONS.includes(value as Program)
+  );
+}
 
 export const DEFAULT_PROVINCE = "Ontario";
 

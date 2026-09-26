@@ -16,8 +16,14 @@ import type {
   DocumentStatus,
   PlacementRecordStatus,
   PlacementStatus,
+  Program,
 } from "@/lib/placement/constants";
 import { ACTIVE_PLACEMENT_RECORD_STATUSES } from "@/lib/placement/constants";
+import {
+  isTrackedStudent,
+  isTrackedStudentRow,
+  type OperationalBatchShape,
+} from "@/lib/placement/operations";
 import type {
   PartnerContactRow,
   PlacementAreaRow,
@@ -57,15 +63,26 @@ export type PlacementBoardStudent = StudentListItem & {
 export type PlacementFilters = {
   /** Student name, student number, or partner name. */
   search?: string;
+  /** Matches students.program exactly. */
+  program?: Program;
   batchId?: string;
   placementStatus?: PlacementStatus;
   documentStatus?: DocumentStatus;
   /** An area id. Matches through the student's current placement partner. */
   areaId?: string;
   partnerId?: string;
+  /**
+   * Only students in CURRENT placement operations: active, in a batch, and
+   * that batch active with tracking on. The same population the dashboard
+   * counts, through the same rule (isTrackedStudentRow). The Placement page
+   * sets this by default; Show All Students leaves it off and the list is
+   * every active student.
+   */
+  currentOperations?: boolean;
 };
 
-const STUDENT_SELECT = "*, batch:batches(id, name, program, start_date)";
+const STUDENT_SELECT =
+  "*, batch:batches(id, name, program, start_date, status, placement_tracking_enabled)";
 
 /**
  * Supabase `or` filters are comma separated, so anything that would change the
@@ -174,6 +191,7 @@ export async function listPlacementStudents(
     .select(STUDENT_SELECT)
     .eq("is_active", true);
 
+  if (filters.program) query = query.eq("program", filters.program);
   if (filters.batchId) query = query.eq("batch_id", filters.batchId);
   if (filters.placementStatus) {
     query = query.eq("placement_status", filters.placementStatus);
@@ -226,6 +244,13 @@ export async function listPlacementStudents(
     currentPlacement: placements.get(student.id) ?? null,
     noteCount: noteCounts.get(student.id) ?? 0,
   }));
+
+  // Current operations is a property of the student's BATCH, which arrives on
+  // the joined row, so it is applied here through the one shared rule rather
+  // than restated as a query condition.
+  if (filters.currentOperations) {
+    rows = rows.filter((row) => isTrackedStudentRow(row));
+  }
 
   // Partner and area both describe the student's CURRENT placement, so they are
   // applied to the joined rows rather than to the students query.
@@ -364,17 +389,38 @@ export type PlacementCounts = {
   onHold: number;
 };
 
-/** One small read behind the summary blocks at the top of /placement. */
-export async function getPlacementCounts(): Promise<PlacementCounts> {
+/**
+ * The reads behind the summary blocks at the top of /placement.
+ *
+ * Scoped the same way the page is, through the one shared rule, so each block
+ * equals the length of the list its link opens. Two small reads and a tally in
+ * memory; no per-status query.
+ */
+export async function getPlacementCounts(
+  filters: Pick<PlacementFilters, "currentOperations"> = {},
+): Promise<PlacementCounts> {
   await requireActiveStaff();
   const supabase = await createSupabaseServerClient();
 
-  const { data, error } = await supabase
-    .from("students")
-    .select("placement_status")
-    .eq("is_active", true);
+  const [studentsRead, batchesRead] = await Promise.all([
+    supabase
+      .from("students")
+      .select("placement_status, batch_id, is_active")
+      .eq("is_active", true),
+    supabase.from("batches").select("id, status, placement_tracking_enabled"),
+  ]);
 
-  if (error) throw new Error(error.message);
+  if (studentsRead.error) throw new Error(studentsRead.error.message);
+  if (batchesRead.error) throw new Error(batchesRead.error.message);
+
+  const batchesById = new Map<string, OperationalBatchShape>();
+  for (const batch of batchesRead.data ?? []) batchesById.set(batch.id, batch);
+
+  const data = filters.currentOperations
+    ? (studentsRead.data ?? []).filter((row) =>
+        isTrackedStudent(row, batchesById),
+      )
+    : (studentsRead.data ?? []);
 
   const byStatus = {
     needs_review: 0,

@@ -9,12 +9,19 @@ import {
   DOCUMENT_STATUS_LABELS,
   PLACEMENT_STATUSES,
   PLACEMENT_STATUS_LABELS,
+  PROGRAM_LABELS,
+  PROGRAM_OPTIONS,
 } from "@/lib/placement/constants";
+import OperationsScopeSwitch from "@/components/ui/OperationsScopeSwitch";
 import {
+  clearedPlacementValues,
   hasActivePlacementFilters,
   placementHref,
+  placementScopeFrom,
   type PlacementToolbarValues,
 } from "@/lib/placement/filters";
+import { ALL_STUDENTS_VALUE } from "@/lib/placement/operations";
+import { batchOptionsForProgram } from "@/lib/students/filters";
 import type {
   BatchRow,
   PlacementAreaRow,
@@ -56,8 +63,29 @@ export default function PlacementToolbar({
     router.push(placementHref(basePath, values, change));
   }
 
+  const batchOptions = batchOptionsForProgram(
+    batches,
+    values.program,
+    values.batch,
+  );
+  const scope = placementScopeFrom(values);
+
   return (
     <div className="flex flex-col gap-4">
+      {/*
+        The working scope, shown on the board and the list alike because it
+        applies to both. Current placement operations is the default; Show All
+        Students opens the broader population and every other filter keeps
+        working inside whichever one is chosen.
+      */}
+      <OperationsScopeSwitch
+        scope={scope}
+        currentHref={placementHref(basePath, values, { operations: "" })}
+        allHref={placementHref(basePath, values, {
+          operations: ALL_STUDENTS_VALUE,
+        })}
+      />
+
       <form
         role="search"
         onSubmit={(event) => {
@@ -99,6 +127,23 @@ export default function PlacementToolbar({
 
       {showFilters ? (
         <div className="flex flex-wrap items-center gap-3">
+          <label htmlFor="filter-program" className="sr-only">
+            Filter by program
+          </label>
+          <select
+            id="filter-program"
+            className={SELECT_CLASSES}
+            value={values.program}
+            onChange={(event) => go({ program: event.target.value })}
+          >
+            <option value="">All Programs</option>
+            {PROGRAM_OPTIONS.map((program) => (
+              <option key={program} value={program}>
+                {PROGRAM_LABELS[program]}
+              </option>
+            ))}
+          </select>
+
           <label htmlFor="filter-batch" className="sr-only">
             Filter by batch
           </label>
@@ -109,7 +154,7 @@ export default function PlacementToolbar({
             onChange={(event) => go({ batch: event.target.value })}
           >
             <option value="">All batches</option>
-            {batches.map((batch) => (
+            {batchOptions.map((batch) => (
               <option key={batch.id} value={batch.id}>
                 {batch.name}
               </option>
@@ -186,14 +231,7 @@ export default function PlacementToolbar({
 
           {hasActivePlacementFilters(values) ? (
             <Link
-              href={placementHref(basePath, values, {
-                q: "",
-                batch: "",
-                status: "",
-                document: "",
-                area: "",
-                partner: "",
-              })}
+              href={placementHref(basePath, values, clearedPlacementValues())}
               className="flex items-center gap-2 rounded-2xl px-4 py-3 text-[16px] font-medium text-brand-strong transition-colors hover:bg-brand-soft"
             >
               <X size={18} aria-hidden="true" />

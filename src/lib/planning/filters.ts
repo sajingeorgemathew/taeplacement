@@ -6,6 +6,8 @@
  *   exception     unmapped or missing, which opens that exception's students
  *   status        a student filter inside a drill-down
  *   availability  a partner filter inside an Area drill-down
+ *   operations    "all" widens the batch selector to every batch; absent, the
+ *                 selector offers only batches in current placement operations
  *
  * Nothing lives in client state, so a planner can send a colleague the exact
  * view they are looking at, and a reload lands in the same place. This mirrors
@@ -16,6 +18,12 @@ import {
   isAvailabilityStatus,
   isPlacementStatus,
 } from "@/lib/placement/constants";
+import {
+  batchChoicesForScope,
+  operationalBatches,
+  operationsScopeFrom,
+  type OperationsScope,
+} from "@/lib/placement/operations";
 import type { BatchRow } from "@/lib/supabase/database.types";
 
 import { isPlanningException, type PlanningException } from "./constants";
@@ -26,6 +34,7 @@ export type PlanningValues = {
   exception: string;
   status: string;
   availability: string;
+  operations: string;
 };
 
 export const emptyPlanningValues: PlanningValues = {
@@ -34,6 +43,7 @@ export const emptyPlanningValues: PlanningValues = {
   exception: "",
   status: "",
   availability: "",
+  operations: "",
 };
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
@@ -50,7 +60,33 @@ export function planningValuesFrom(params: RawSearchParams): PlanningValues {
     exception: single(params.exception),
     status: single(params.status),
     availability: single(params.availability),
+    operations: single(params.operations),
   };
+}
+
+/**
+ * The batch selector's scope: current placement operations unless staff
+ * explicitly asked for every batch (operations=all). Resolved by the same
+ * helper as the Students and Placement pages.
+ */
+export function planningScopeFrom(values: PlanningValues): OperationsScope {
+  return operationsScopeFrom(values.operations);
+}
+
+/**
+ * The batches the selector offers.
+ *
+ * By default only batches in current placement operations (active AND
+ * tracked), which is what staff are actually planning. Whatever batch the URL
+ * already names is always included, so a historical link keeps working and
+ * the select can show it. Show all batches lists every batch.
+ */
+export function planningBatchChoices(
+  values: PlanningValues,
+  batches: readonly BatchRow[],
+  selectedId: string | null = values.batch || null,
+): BatchRow[] {
+  return batchChoicesForScope(batches, planningScopeFrom(values), selectedId);
 }
 
 export function planningHref(
@@ -88,14 +124,18 @@ export function planningException(
 /**
  * The batch to plan.
  *
- * The URL wins when it names a batch that still exists. Otherwise the default
- * is the most recent ACTIVE batch, read from the batch records themselves: the
- * latest start_date, and where dates are missing the last batch in the admin
- * display order. Batch names are never hard-coded and never parsed, so an
- * academy that stops running "April / June / August" needs no code change.
+ * The URL wins when it names a batch that still exists, whatever its status
+ * or tracking flag: a direct link to an old batch is historical access and it
+ * must keep working. Otherwise the default is the most recent batch in CURRENT
+ * placement operations (active and tracked), read from the batch records
+ * themselves: the latest start_date, and where dates are missing the last
+ * batch in the admin display order. Batch names are never hard-coded and never
+ * parsed, so an academy that stops running "April / June / August" needs no
+ * code change.
  *
- * Falls back to the most recent batch of any status when every batch has been
- * archived, so the page still has something to show rather than going blank.
+ * Falls back to the most recent active batch when nothing is tracked yet, and
+ * to the most recent batch of any status when every batch has been archived,
+ * so the page still has something to show rather than going blank.
  */
 export function resolveBatch(
   values: PlanningValues,
@@ -105,6 +145,9 @@ export function resolveBatch(
 
   const chosen = batches.find((batch) => batch.id === values.batch);
   if (chosen) return chosen;
+
+  const operational = operationalBatches(batches);
+  if (operational.length > 0) return mostRecent(operational);
 
   const active = batches.filter((batch) => batch.status === "active");
   return mostRecent(active.length > 0 ? active : batches);

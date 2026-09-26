@@ -4,7 +4,13 @@ import {
   PLACEMENT_READY_STATUS,
   type DocumentStatus,
   type PlacementStatus,
+  type Program,
 } from "@/lib/placement/constants";
+import {
+  isTrackedStudent,
+  isTrackedStudentRow,
+  type OperationalBatchShape,
+} from "@/lib/placement/operations";
 import type {
   BatchRow,
   StudentNoteRow,
@@ -12,9 +18,14 @@ import type {
 } from "@/lib/supabase/database.types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+/**
+ * The batch as a student row carries it. status and placement_tracking_enabled
+ * are included so the current-operations rule can be applied to a joined row
+ * without a second batch read.
+ */
 export type BatchSummary = Pick<
   BatchRow,
-  "id" | "name" | "program" | "start_date"
+  "id" | "name" | "program" | "start_date" | "status" | "placement_tracking_enabled"
 >;
 
 export type StudentListItem = StudentRow & {
@@ -27,14 +38,23 @@ export type StudentNote = StudentNoteRow & {
 
 export type StudentFilters = {
   search?: string;
+  /** Matches students.program exactly. */
+  program?: Program;
   batchId?: string;
   placementStatus?: PlacementStatus;
   documentStatus?: DocumentStatus;
   returning?: "yes" | "no";
+  /**
+   * Only students in CURRENT placement operations: active, in a batch, and
+   * that batch active with tracking on. The same rule as the dashboard and the
+   * Placement page (isTrackedStudentRow). The /students roster sets it by
+   * default; the batch and returning pages never do.
+   */
+  currentOperations?: boolean;
 };
 
 const STUDENT_SELECT =
-  "*, batch:batches(id, name, program, start_date)";
+  "*, batch:batches(id, name, program, start_date, status, placement_tracking_enabled)";
 
 /**
  * Supabase `or` filters are comma separated, so anything that would change the
@@ -118,6 +138,7 @@ export async function listStudents(
     .select(STUDENT_SELECT)
     .eq("is_active", true);
 
+  if (filters.program) query = query.eq("program", filters.program);
   if (filters.batchId) query = query.eq("batch_id", filters.batchId);
   if (filters.placementStatus) {
     query = query.eq("placement_status", filters.placementStatus);
@@ -138,7 +159,13 @@ export async function listStudents(
     .order("first_name", { ascending: true });
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as StudentListItem[];
+  const rows = (data ?? []) as unknown as StudentListItem[];
+
+  // Current operations is a property of the student's BATCH, which arrives on
+  // the joined row, so it is applied here through the one shared rule.
+  return filters.currentOperations
+    ? rows.filter((row) => isTrackedStudentRow(row))
+    : rows;
 }
 
 export async function getStudent(
@@ -159,7 +186,11 @@ export async function getStudent(
 
 type CountRow = Pick<
   StudentRow,
-  "batch_id" | "placement_status" | "document_status" | "is_returning"
+  | "batch_id"
+  | "placement_status"
+  | "document_status"
+  | "is_returning"
+  | "is_active"
 >;
 
 export type StudentCounts = {
@@ -175,22 +206,54 @@ export type StudentCounts = {
 };
 
 /**
- * One small read that powers every live count on the Students page. The roster
- * is a few hundred rows, so counting in one pass is cheaper than many separate
- * count queries.
+ * The Students page counts under both scopes, from one read.
+ *
+ *   current   students in current placement operations (the default scope)
+ *   all       every active student
+ *
+ * The page shows whichever scope staff chose, and the program overview always
+ * reads `current`, so the two never come from different definitions.
  */
-export async function getStudentCounts(): Promise<StudentCounts> {
+export type ScopedStudentCounts = {
+  current: StudentCounts;
+  all: StudentCounts;
+};
+
+/**
+ * One small read of the roster and one of the batch list power every live
+ * count on the Students page. The roster is a few hundred rows, so tallying
+ * twice in memory is cheaper than a second query per scope.
+ */
+export async function getStudentCounts(): Promise<ScopedStudentCounts> {
   await requireActiveStaff();
   const supabase = await createSupabaseServerClient();
 
-  const { data, error } = await supabase
-    .from("students")
-    .select("batch_id, placement_status, document_status, is_returning")
-    .eq("is_active", true);
+  const [studentsRead, batchesRead] = await Promise.all([
+    supabase
+      .from("students")
+      .select(
+        "batch_id, placement_status, document_status, is_returning, is_active",
+      )
+      .eq("is_active", true),
+    supabase.from("batches").select("id, status, placement_tracking_enabled"),
+  ]);
 
-  if (error) throw new Error(error.message);
+  if (studentsRead.error) throw new Error(studentsRead.error.message);
+  if (batchesRead.error) throw new Error(batchesRead.error.message);
 
-  const rows = (data ?? []) as CountRow[];
+  const rows = (studentsRead.data ?? []) as CountRow[];
+  const batchesById = new Map<string, OperationalBatchShape>();
+  for (const batch of batchesRead.data ?? []) batchesById.set(batch.id, batch);
+
+  return {
+    current: tallyStudents(
+      rows.filter((row) => isTrackedStudent(row, batchesById)),
+    ),
+    all: tallyStudents(rows),
+  };
+}
+
+function tallyStudents(rows: CountRow[]): StudentCounts {
   const counts: StudentCounts = {
     total: rows.length,
     needingPlacement: 0,
