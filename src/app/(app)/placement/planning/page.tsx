@@ -38,9 +38,16 @@ import {
   PLANNING_STATUS_LABELS,
 } from "@/lib/planning/constants";
 import {
+  ALL_STUDENTS_VALUE,
+  OPERATIONS_PARAM,
+  isOperationalBatch,
+} from "@/lib/placement/operations";
+import {
   planningAvailability,
+  planningBatchChoices,
   planningException,
   planningHref,
+  planningScopeFrom,
   planningStudentStatus,
   planningValuesFrom,
   resolveBatch,
@@ -48,6 +55,7 @@ import {
 } from "@/lib/planning/filters";
 import { listCityAreaMappings } from "@/lib/planning/queries";
 import { listBatches } from "@/lib/students/queries";
+import type { BatchRow } from "@/lib/supabase/database.types";
 
 export const metadata = {
   title: "Batch Planning",
@@ -121,7 +129,7 @@ export default async function BatchPlanningPage(
         <PlanningHeader
           values={values}
           batches={batches}
-          selectedId={null}
+          selected={null}
           batchLine="No batches have been created yet."
         />
         <Section
@@ -161,7 +169,11 @@ export default async function BatchPlanningPage(
     studentCountLabel(planning.counts.total),
     batch.program,
     startDate ? `starts ${startDate}` : null,
-    batch.status === "archived" ? "archived batch" : null,
+    batch.status === "archived"
+      ? "archived batch"
+      : isOperationalBatch(batch)
+        ? null
+        : "not tracked in Placement Operations",
   ]
     .filter(Boolean)
     .join(" - ");
@@ -189,7 +201,7 @@ export default async function BatchPlanningPage(
     <PlanningHeader
       values={values}
       batches={batches}
-      selectedId={batch.id}
+      selected={batch}
       batchLine={batchLine}
     />
   );
@@ -559,18 +571,47 @@ export default async function BatchPlanningPage(
   }
 }
 
+/**
+ * The Board and List links for the batch being planned.
+ *
+ * A batch outside current operations is not in the Placement page's default
+ * scope, so its links carry Show All Students; otherwise a planner would land
+ * on an empty board for a batch they were just looking at.
+ */
+function placementLink(
+  path: string,
+  view: "board" | "list",
+  batch: BatchRow | null,
+): string {
+  const params = new URLSearchParams();
+  if (view === "list") params.set("view", "list");
+  if (batch) {
+    params.set("batch", batch.id);
+    if (!isOperationalBatch(batch)) {
+      params.set(OPERATIONS_PARAM, ALL_STUDENTS_VALUE);
+    }
+  }
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 /** The title, the batch selector, and the Placement view switch. */
 function PlanningHeader({
   values,
   batches,
-  selectedId,
+  selected,
   batchLine,
 }: {
   values: PlanningValues;
   batches: Awaited<ReturnType<typeof listBatches>>;
-  selectedId: string | null;
+  selected: BatchRow | null;
   batchLine: string;
 }) {
+  const scope = planningScopeFrom(values);
+  // The batch on screen is always offered, even when it was reached by a
+  // direct link to an old batch or is the fallback when nothing is tracked.
+  const choices = planningBatchChoices(values, batches, selected?.id ?? null);
+
   return (
     <>
       <div className="mb-8">
@@ -587,24 +628,28 @@ function PlanningHeader({
       <div className="mb-8 flex flex-col gap-6">
         <PlacementViewSwitch
           current="planning"
-          boardHref={
-            values.batch
-              ? `/placement?batch=${encodeURIComponent(values.batch)}`
-              : "/placement"
-          }
+          // The batch already chosen here carries into the board and the
+          // list only when the URL named it; the planning default is not
+          // forced onto the other views.
+          boardHref={placementLink(
+            "/placement",
+            "board",
+            values.batch ? selected : null,
+          )}
           planningHref={BASE_PATH}
-          listHref={
-            values.batch
-              ? `/placement?view=list&batch=${encodeURIComponent(values.batch)}`
-              : "/placement?view=list"
-          }
+          listHref={placementLink(
+            "/placement",
+            "list",
+            values.batch ? selected : null,
+          )}
         />
 
         {batches.length > 0 ? (
           <div className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-6 sm:p-7">
             <BatchSelector
-              batches={batches}
-              selectedId={selectedId}
+              batches={choices}
+              scope={scope}
+              selectedId={selected?.id ?? null}
               basePath={BASE_PATH}
             />
             <p className="text-[16px] text-ink-muted">{batchLine}</p>

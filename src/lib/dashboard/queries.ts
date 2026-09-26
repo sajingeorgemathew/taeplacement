@@ -1,35 +1,63 @@
 /**
- * The four counts behind the Placement Dashboard.
+ * The reads behind the Placement Dashboard.
  *
  * Nothing is computed or stored here. Each number is a plain count over data
  * that already exists, read through the normal server client so Row Level
  * Security applies exactly as it does everywhere else.
  *
- * Two vocabularies are in play and they are NOT interchangeable, so the counts
- * below are deliberately drawn from both:
+ * The main summary is PROGRAM FIRST and it is scoped to CURRENT placement
+ * operations. That scope is one rule, defined once in
+ * @/lib/placement/operations and never restated here:
  *
- *   students.placement_status        the student's whole placement requirement
- *   student_placements.status        one placement segment at one partner
+ *   students.is_active
+ *   AND students.batch_id -> batches.status = active
+ *   AND batches.placement_tracking_enabled = true
  *
- * Ready for Placement is a question about students who have no partner yet, so
- * it reads the first. Awaiting Start and On Placement are questions about live
- * placement records, so they read the second.
+ * Older batches that nobody has switched on are still in the database and
+ * still browsable everywhere else; they are simply not today's work, so they
+ * do not appear in these counts. students.placement_status is used as stored.
+ * Nothing here derives a placement status from documents or placement records.
  */
 
 import { requireActiveStaff } from "@/lib/auth/session";
-import { PLACEMENT_READY_STATUS } from "@/lib/placement/constants";
+import {
+  buildProgramOperationsSummary,
+  type ProgramOperationsSummaries,
+  type SummaryBatchShape,
+  type SummaryStudentShape,
+} from "@/lib/placement/operations";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export type DashboardSummary = {
-  /** Active students with documents complete and no partner yet. */
-  readyForPlacement: number;
-  /** Live placement records where the student has not started yet. */
-  awaitingStart: number;
-  /** Live placement records where the student is on placement right now. */
-  onPlacement: number;
-  /** Partners whose follow-up date has arrived or passed. */
-  followUpsDue: number;
-};
+/**
+ * One summary per supported program, always present, zeros when a program has
+ * no tracked students yet.
+ *
+ * Two small reads, no join and no per-batch query: the batch list (a few dozen
+ * rows) and the active roster's four relevant columns (a few hundred rows),
+ * rolled up in memory by the pure builder.
+ */
+export async function getProgramOperationsSummary(): Promise<ProgramOperationsSummaries> {
+  await requireActiveStaff();
+  const supabase = await createSupabaseServerClient();
+
+  const [batches, students] = await Promise.all([
+    supabase
+      .from("batches")
+      .select("id, status, placement_tracking_enabled"),
+    supabase
+      .from("students")
+      .select("batch_id, program, placement_status, is_active")
+      .eq("is_active", true),
+  ]);
+
+  if (batches.error) throw new Error(batches.error.message);
+  if (students.error) throw new Error(students.error.message);
+
+  return buildProgramOperationsSummary(
+    (students.data ?? []) as SummaryStudentShape[],
+    (batches.data ?? []) as SummaryBatchShape[],
+  );
+}
 
 /**
  * The inclusive upper bound for "a follow-up that is due".
@@ -45,52 +73,26 @@ function endOfTodayUtc(): string {
   return `${new Date().toISOString().slice(0, 10)}T23:59:59.999Z`;
 }
 
-/** One small read per card, in parallel. */
-export async function getDashboardSummary(): Promise<DashboardSummary> {
+/**
+ * Partners whose follow-up date has arrived or passed.
+ *
+ * Archived partners have left the board, so they are not work anybody owes a
+ * phone call. A partner that has merely gone quiet (relationship_status
+ * "inactive") is deliberately still counted: they are exactly who a due
+ * follow-up is for.
+ */
+export async function getPartnerFollowUpsDue(): Promise<number> {
   await requireActiveStaff();
   const supabase = await createSupabaseServerClient();
 
-  const [ready, awaitingStart, onPlacement, followUpsDue] = await Promise.all([
-    supabase
-      .from("students")
-      .select("id", { count: "exact", head: true })
-      .eq("is_active", true)
-      .eq("placement_status", PLACEMENT_READY_STATUS),
+  const { count, error } = await supabase
+    .from("placement_partners")
+    .select("id", { count: "exact", head: true })
+    .eq("is_active", true)
+    .neq("relationship_status", "archived")
+    .not("next_follow_up_at", "is", null)
+    .lte("next_follow_up_at", endOfTodayUtc());
 
-    // "assigned" and "started" are already the two ACTIVE record statuses, so
-    // matching one of them is by itself a current placement. Finished segments
-    // are never any of them and so can never reach these counts.
-    supabase
-      .from("student_placements")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "assigned"),
-
-    supabase
-      .from("student_placements")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "started"),
-
-    // Archived partners have left the board, so they are not work anybody owes
-    // a phone call. A partner that has merely gone quiet (relationship_status
-    // "inactive") is deliberately still counted: they are exactly who a due
-    // follow-up is for.
-    supabase
-      .from("placement_partners")
-      .select("id", { count: "exact", head: true })
-      .eq("is_active", true)
-      .neq("relationship_status", "archived")
-      .not("next_follow_up_at", "is", null)
-      .lte("next_follow_up_at", endOfTodayUtc()),
-  ]);
-
-  for (const result of [ready, awaitingStart, onPlacement, followUpsDue]) {
-    if (result.error) throw new Error(result.error.message);
-  }
-
-  return {
-    readyForPlacement: ready.count ?? 0,
-    awaitingStart: awaitingStart.count ?? 0,
-    onPlacement: onPlacement.count ?? 0,
-    followUpsDue: followUpsDue.count ?? 0,
-  };
+  if (error) throw new Error(error.message);
+  return count ?? 0;
 }

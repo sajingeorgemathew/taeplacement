@@ -2,6 +2,7 @@ import { ArrowRight, History } from "lucide-react";
 import Link from "next/link";
 
 import { formatDate, studentCountLabel } from "@/lib/format";
+import { isOperationalBatch } from "@/lib/placement/operations";
 import type { BatchRow } from "@/lib/supabase/database.types";
 
 type Counts = {
@@ -49,7 +50,21 @@ export default function BatchCard({
           <span className="shrink-0 rounded-full border border-line bg-surface-muted px-3.5 py-1.5 text-[14px] font-medium text-ink-muted">
             Archived
           </span>
-        ) : null}
+        ) : isOperationalBatch(batch) ? (
+          <span
+            className="shrink-0 rounded-full border border-ready-line bg-ready-soft px-3.5 py-1.5 text-[14px] font-medium text-ready-ink"
+            title="Counted in current placement operations"
+          >
+            Tracking
+          </span>
+        ) : (
+          <span
+            className="shrink-0 rounded-full border border-line bg-surface-muted px-3.5 py-1.5 text-[14px] font-medium text-ink-muted"
+            title="Not counted in current placement operations. An admin can switch this on in Batch Management."
+          >
+            Not Tracking
+          </span>
+        )}
       </div>
 
       <p className="mt-2 text-[16px] text-ink-muted">

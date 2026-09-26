@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 
 import { isAdmin, requireActiveStaff } from "@/lib/auth/session";
 import {
+  placementTrackingChangeFrom,
+  placementTrackingUpdate,
+} from "@/lib/batches/tracking";
+import {
   emptyFormState,
   fieldErrorsFrom,
   type FormState,
@@ -124,5 +128,43 @@ export async function setBatchStatusAction(
 
   revalidatePath("/admin/batches");
   revalidatePath("/students");
+  return emptyFormState;
+}
+
+/**
+ * Switch a batch in or out of CURRENT placement operations.
+ *
+ * This writes exactly one column, placement_tracking_enabled, on exactly one
+ * batch row. It never changes the batch status, any student's is_active or
+ * placement_status, any placement record, or any document record, and it
+ * sends nothing. Same permission as every other batch change: admin only,
+ * which the "admin update batches" policy from 0001 enforces in the database.
+ */
+export async function setBatchPlacementTrackingAction(
+  _previous: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const session = await requireActiveStaff();
+  if (!isAdmin(session)) return { error: ADMIN_ONLY, fieldErrors: {} };
+
+  const change = placementTrackingChangeFrom(formData);
+  if (!change) return { error: "Missing batch.", fieldErrors: {} };
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("batches")
+    .update(placementTrackingUpdate(change.enabled))
+    .eq("id", change.batchId);
+
+  if (error) {
+    return {
+      error: "The placement operations setting could not be saved. Try again.",
+      fieldErrors: {},
+    };
+  }
+
+  revalidatePath("/admin/batches");
+  revalidatePath("/students");
+  revalidatePath("/dashboard");
   return emptyFormState;
 }

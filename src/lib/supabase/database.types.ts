@@ -44,6 +44,12 @@ export type BatchRow = Timestamps & {
   schedule_label: string | null;
   status: "active" | "archived";
   sort_order: number | null;
+  /**
+   * PLACEMENT-07A. True when this batch is part of CURRENT placement
+   * operations. Only meaningful together with status = active; see
+   * isOperationalBatch() in @/lib/placement/operations.
+   */
+  placement_tracking_enabled: boolean;
 };
 
 export type StudentRow = Timestamps & {
@@ -313,8 +319,12 @@ type TableShape<Row, Insert, Update> = {
   Relationships: [];
 };
 
-export type BatchInsert = Omit<BatchRow, "id" | "created_at" | "updated_at"> &
-  Partial<Pick<BatchRow, "id">>;
+/** placement_tracking_enabled defaults to false, so no caller has to send it. */
+export type BatchInsert = Omit<
+  BatchRow,
+  "id" | "created_at" | "updated_at" | "placement_tracking_enabled"
+> &
+  Partial<Pick<BatchRow, "id" | "placement_tracking_enabled">>;
 export type BatchUpdate = Partial<BatchInsert>;
 
 /** The hold columns default to null, so no caller has to send them. */

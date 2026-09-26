@@ -2,6 +2,7 @@ import BatchAdmin from "@/components/admin/BatchAdmin";
 import BackLink from "@/components/ui/BackLink";
 import {
   createBatchAction,
+  setBatchPlacementTrackingAction,
   setBatchStatusAction,
   updateBatchAction,
 } from "@/lib/batches/actions";
@@ -19,8 +20,9 @@ export default async function AdminBatchesPage() {
     getStaffSession(),
   ]);
 
+  // Batch Management lists every batch, so it reads the unscoped counts.
   const studentCounts: Record<string, number> = {};
-  for (const [batchId, batchCounts] of counts.byBatch) {
+  for (const [batchId, batchCounts] of counts.all.byBatch) {
     studentCounts[batchId] = batchCounts.total;
   }
 
@@ -34,7 +36,9 @@ export default async function AdminBatchesPage() {
         </h1>
         <p className="mt-3 max-w-2xl text-[18px] text-ink-muted">
           Create and maintain the batches students are grouped into. Archived
-          batches stay available for historical records.
+          batches stay available for historical records. Placement Operations
+          decides which batches the dashboard counts today; it never changes
+          any student.
         </p>
       </div>
 
@@ -45,6 +49,7 @@ export default async function AdminBatchesPage() {
         createAction={createBatchAction}
         updateAction={updateBatchAction}
         setStatusAction={setBatchStatusAction}
+        setTrackingAction={setBatchPlacementTrackingAction}
       />
     </>
   );

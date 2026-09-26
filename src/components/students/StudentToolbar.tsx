@@ -9,9 +9,20 @@ import {
   DOCUMENT_STATUS_LABELS,
   PLACEMENT_STATUSES,
   PLACEMENT_STATUS_LABELS,
+  PROGRAM_LABELS,
+  PROGRAM_OPTIONS,
 } from "@/lib/placement/constants";
+import OperationsScopeSwitch from "@/components/ui/OperationsScopeSwitch";
+import { ALL_STUDENTS_VALUE } from "@/lib/placement/operations";
 import type { BatchRow } from "@/lib/supabase/database.types";
-import type { ToolbarValues } from "@/lib/students/filters";
+import {
+  batchOptionsForProgram,
+  clearedToolbarValues,
+  hasActiveFilters,
+  studentHref,
+  studentScopeFrom,
+  type ToolbarValues,
+} from "@/lib/students/filters";
 
 type StudentToolbarProps = {
   /** Route the filters write back to, for example /students. */
@@ -19,6 +30,12 @@ type StudentToolbarProps = {
   values: ToolbarValues;
   /** Omit to hide the batch filter, for example on a batch page. */
   batches?: BatchRow[];
+  /**
+   * Show the Current Operations / Show All Students switch. Only the main
+   * roster has a scope; a batch page or Previous / Returning shows what it
+   * shows.
+   */
+  showScopeSwitch?: boolean;
   showReturningFilter?: boolean;
   searchPlaceholder?: string;
 };
@@ -26,40 +43,38 @@ type StudentToolbarProps = {
 const SELECT_CLASSES =
   "h-12 min-w-[11rem] rounded-2xl border border-line bg-surface px-4 text-[16px] text-ink outline-none focus:border-brand";
 
-function buildHref(
-  basePath: string,
-  values: ToolbarValues,
-  change: Partial<ToolbarValues>,
-): string {
-  const next = { ...values, ...change };
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(next)) {
-    if (value) params.set(key, value);
-  }
-  const query = params.toString();
-  return query ? `${basePath}?${query}` : basePath;
-}
-
 /** Comfortable search and light filters. No filter builder, no dense controls. */
 export default function StudentToolbar({
   basePath,
   values,
   batches,
+  showScopeSwitch = false,
   showReturningFilter = true,
   searchPlaceholder = "Search by name, student number, or email",
 }: StudentToolbarProps) {
   const router = useRouter();
 
-  const hasFilters = Boolean(
-    values.q || values.batch || values.placement || values.document || values.returning,
-  );
+  const hasFilters = hasActiveFilters(values);
+  const batchOptions = batches
+    ? batchOptionsForProgram(batches, values.program, values.batch)
+    : null;
 
   function go(change: Partial<ToolbarValues>) {
-    router.push(buildHref(basePath, values, change));
+    router.push(studentHref(basePath, values, change));
   }
 
   return (
     <div className="flex flex-col gap-4">
+      {showScopeSwitch ? (
+        <OperationsScopeSwitch
+          scope={studentScopeFrom(values)}
+          currentHref={studentHref(basePath, values, { operations: "" })}
+          allHref={studentHref(basePath, values, {
+            operations: ALL_STUDENTS_VALUE,
+          })}
+        />
+      ) : null}
+
       <form
         role="search"
         onSubmit={(event) => {
@@ -99,8 +114,25 @@ export default function StudentToolbar({
       </form>
 
       <div className="flex flex-wrap items-center gap-3">
-        {batches ? (
+        {batchOptions ? (
           <>
+            <label htmlFor="filter-program" className="sr-only">
+              Filter by program
+            </label>
+            <select
+              id="filter-program"
+              className={SELECT_CLASSES}
+              value={values.program}
+              onChange={(event) => go({ program: event.target.value })}
+            >
+              <option value="">All Programs</option>
+              {PROGRAM_OPTIONS.map((program) => (
+                <option key={program} value={program}>
+                  {PROGRAM_LABELS[program]}
+                </option>
+              ))}
+            </select>
+
             <label htmlFor="filter-batch" className="sr-only">
               Filter by batch
             </label>
@@ -111,7 +143,7 @@ export default function StudentToolbar({
               onChange={(event) => go({ batch: event.target.value })}
             >
               <option value="">All batches</option>
-              {batches.map((batch) => (
+              {batchOptions.map((batch) => (
                 <option key={batch.id} value={batch.id}>
                   {batch.name}
                 </option>
@@ -174,7 +206,7 @@ export default function StudentToolbar({
 
         {hasFilters ? (
           <Link
-            href={basePath}
+            href={studentHref(basePath, values, clearedToolbarValues())}
             className="flex items-center gap-2 rounded-2xl px-4 py-3 text-[16px] font-medium text-brand-strong transition-colors hover:bg-brand-soft"
           >
             <X size={18} aria-hidden="true" />
