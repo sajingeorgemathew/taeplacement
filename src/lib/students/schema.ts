@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   BATCH_STATUSES,
+  CLASS_SESSIONS,
   DEFAULT_PROGRAM,
   DOCUMENT_STATUSES,
   PLACEMENT_STATUSES,
@@ -62,6 +63,26 @@ export const NoteFormSchema = z.object({
     .min(1, "Write a note before posting.")
     .max(4000, "Notes are limited to 4000 characters."),
 });
+
+/**
+ * The one field the Batch Document Grid's Session cell saves. PLACEMENT-07B.1.
+ *
+ * An empty string is Not Set and is stored as null. Anything other than
+ * morning / evening / empty is refused here, and the CHECK constraint in
+ * 0011 refuses it again in the database.
+ */
+export const ClassSessionChangeSchema = z.object({
+  student_id: z.uuid(),
+  class_session: z
+    .string()
+    .trim()
+    .transform((value) => (value.length > 0 ? value : null))
+    .nullable()
+    .default(null)
+    .pipe(z.enum(CLASS_SESSIONS).nullable()),
+});
+
+export type ClassSessionChange = z.infer<typeof ClassSessionChangeSchema>;
 
 export const BatchFormSchema = z.object({
   name: z.string().trim().min(1, "Batch name is required.").max(120),

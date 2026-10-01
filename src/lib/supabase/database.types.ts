@@ -14,6 +14,7 @@
 import type {
   AreaColorKey,
   AvailabilityStatus,
+  ClassSession,
   DocumentStatus,
   PlacementDocumentStatus,
   PlacementRecordStatus,
@@ -67,6 +68,11 @@ export type StudentRow = Timestamps & {
   province: string | null;
   postal_code: string | null;
   is_returning: boolean;
+  /**
+   * PLACEMENT-07B.1. The student's class / session WITHIN their batch. Null
+   * means Not Set. Never derived from batches.schedule_label.
+   */
+  class_session: ClassSession | null;
   placement_status: PlacementStatus;
   document_status: DocumentStatus;
   /** Short optional reason the student is On Hold. Null when not on hold. */
@@ -330,10 +336,18 @@ export type BatchUpdate = Partial<BatchInsert>;
 /** The hold columns default to null, so no caller has to send them. */
 export type StudentInsert = Omit<
   StudentRow,
-  "id" | "created_at" | "updated_at" | "placement_hold_reason" | "placement_hold_at"
+  | "id"
+  | "created_at"
+  | "updated_at"
+  | "placement_hold_reason"
+  | "placement_hold_at"
+  | "class_session"
 > &
   Partial<
-    Pick<StudentRow, "id" | "placement_hold_reason" | "placement_hold_at">
+    Pick<
+      StudentRow,
+      "id" | "placement_hold_reason" | "placement_hold_at" | "class_session"
+    >
   >;
 export type StudentUpdate = Partial<StudentInsert>;
 

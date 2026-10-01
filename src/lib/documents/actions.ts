@@ -50,6 +50,11 @@ function revalidateStudent(studentId: string) {
   revalidatePath(`/students/${studentId}/documents`);
   revalidatePath(`/students/${studentId}`);
   revalidatePath("/students");
+  // The Batch Document Grid (PLACEMENT-07B.1) shows every checklist cell and
+  // the derived readiness of the whole batch, so the batch page is refreshed
+  // too. The dynamic form covers whichever batch the student is in without a
+  // second read to find out which that is.
+  revalidatePath("/students/batches/[batchId]", "page");
   // A checklist change can move a PRE-placement student between board columns,
   // so the Placement Board is refreshed with them.
   revalidatePath("/placement");
