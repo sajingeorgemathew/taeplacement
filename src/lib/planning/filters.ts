@@ -4,8 +4,15 @@
  *   batch         the selected batch id
  *   area          an area id, which opens the Area drill-down
  *   exception     unmapped or missing, which opens that exception's students
- *   status        a student filter inside a drill-down
+ *   status        a student filter inside a drill-down, or on its own the
+ *                 batch-wide drill-down for one placement status
  *   availability  a partner filter inside an Area drill-down
+ *   city          a normalized city, which opens the students from that city
+ *                 (PLACEMENT-07B)
+ *   need          "action" or "review", which opens the students with a
+ *                 document need of that kind (PLACEMENT-07B)
+ *   requirement   a requirement id narrowing a need drill-down to one
+ *                 requirement (PLACEMENT-07B)
  *   operations    "all" widens the batch selector to every batch; absent, the
  *                 selector offers only batches in current placement operations
  *
@@ -26,7 +33,9 @@ import {
 } from "@/lib/placement/operations";
 import type { BatchRow } from "@/lib/supabase/database.types";
 
+import { normalizeCityName } from "./city";
 import { isPlanningException, type PlanningException } from "./constants";
+import { isNeedKind, type NeedKind } from "./needs";
 
 export type PlanningValues = {
   batch: string;
@@ -34,6 +43,9 @@ export type PlanningValues = {
   exception: string;
   status: string;
   availability: string;
+  city: string;
+  need: string;
+  requirement: string;
   operations: string;
 };
 
@@ -43,7 +55,38 @@ export const emptyPlanningValues: PlanningValues = {
   exception: "",
   status: "",
   availability: "",
+  city: "",
+  need: "",
+  requirement: "",
   operations: "",
+};
+
+/**
+ * The keys that describe WHERE inside a batch the page is looking. Changing
+ * one drill-down resets the others, so a city link never carries an old Area
+ * or a stale status filter along with it. The batch and the scope are kept.
+ */
+export const PLANNING_DRILLDOWN_KEYS = [
+  "area",
+  "exception",
+  "status",
+  "availability",
+  "city",
+  "need",
+  "requirement",
+] as const satisfies readonly (keyof PlanningValues)[];
+
+export const clearedDrilldown: Pick<
+  PlanningValues,
+  (typeof PLANNING_DRILLDOWN_KEYS)[number]
+> = {
+  area: "",
+  exception: "",
+  status: "",
+  availability: "",
+  city: "",
+  need: "",
+  requirement: "",
 };
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
@@ -60,8 +103,84 @@ export function planningValuesFrom(params: RawSearchParams): PlanningValues {
     exception: single(params.exception),
     status: single(params.status),
     availability: single(params.availability),
+    city: single(params.city),
+    need: single(params.need),
+    requirement: single(params.requirement),
     operations: single(params.operations),
   };
+}
+
+/** A drill-down link: the batch and scope kept, every drill-down key reset. */
+export function planningDrilldownHref(
+  basePath: string,
+  values: PlanningValues,
+  change: Partial<PlanningValues>,
+): string {
+  return planningHref(basePath, values, { ...clearedDrilldown, ...change });
+}
+
+/** Longer than any real city. Anything past this is not a city, it is noise. */
+const MAX_CITY_KEY_LENGTH = 120;
+
+/**
+ * The city a drill-down is about, as the same normalized match key the
+ * mapping uses, so "?city=Mississauga" and "?city=mississauga" open the same
+ * students. Blank, missing, or absurdly long values open nothing.
+ *
+ * The City Missing row is not reached this way: it is exception=missing, the
+ * PLACEMENT-05A view, because a student with no city has no key to match.
+ */
+export function planningCity(values: PlanningValues): string | null {
+  const key = normalizeCityName(values.city);
+  if (!key || key.length > MAX_CITY_KEY_LENGTH) return null;
+  return key;
+}
+
+/** Only "action" or "review" opens a need drill-down. */
+export function planningNeed(values: PlanningValues): NeedKind | null {
+  return isNeedKind(values.need) ? values.need : null;
+}
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The requirement narrowing a need drill-down. Only a well-formed id is
+ * accepted; whether the batch actually has that requirement is decided by the
+ * page against the requirements it read. Anything else means every
+ * requirement of that kind.
+ */
+export function planningRequirement(values: PlanningValues): string | null {
+  const value = values.requirement.trim();
+  return UUID_PATTERN.test(value) ? value.toLowerCase() : null;
+}
+
+/**
+ * Which view the URL opens. One resolver, in priority order, so the page and
+ * the checks agree on what a combination of parameters means:
+ *
+ *   exception   Unmapped City / City Missing students
+ *   area        one Placement Area, students and partners
+ *   city        the students from one city
+ *   need        the students with a document need
+ *   status      every student in the batch with one placement status
+ *   overview    the batch summary
+ */
+export type PlanningView =
+  | "exception"
+  | "area"
+  | "city"
+  | "need"
+  | "status"
+  | "overview";
+
+export function planningView(values: PlanningValues): PlanningView {
+  if (planningException(values)) return "exception";
+  if (values.area) return "area";
+  if (planningCity(values)) return "city";
+  if (planningNeed(values)) return "need";
+  if (planningStudentStatus(values)) return "status";
+  return "overview";
 }
 
 /**

@@ -28,12 +28,18 @@ import {
 import type { PlacementBoardStudent } from "@/lib/placement/queries";
 import type { PlacementAreaRow } from "@/lib/supabase/database.types";
 
+import { cityDisplayLabel } from "./city";
 import {
   buildCityAreaIndex,
   resolveCityArea,
   type CityAreaIndex,
+  type CityAreaState,
   type ResolvedCityArea,
 } from "./mapping";
+
+/** The key the City Missing row carries. Never a real normalized city. */
+export const MISSING_CITY_KEY = "";
+export const MISSING_CITY_LABEL = "City Missing";
 
 /** Counts for one set of students, by the existing placement statuses. */
 export type PlanningStatusCounts = {
@@ -82,11 +88,34 @@ export type PlanningExceptionGroup = {
   cities: PlanningCityCount[];
 };
 
+/**
+ * One row of "Where Students Live": a normalized city across the whole batch,
+ * whatever Area it does or does not map to, plus the City Missing row.
+ *
+ *   mapped        area is the ACTIVE Placement Area the city maps to
+ *   needs_review  area is the ARCHIVED area the mapping still points at
+ *   unmapped      no mapping row; area is null and nothing is guessed
+ *   missing       the City Missing row; key is MISSING_CITY_KEY
+ */
+export type PlanningCityRow = {
+  key: string;
+  label: string;
+  count: number;
+  state: CityAreaState;
+  area: PlacementAreaRow | null;
+  students: PlacementBoardStudent[];
+};
+
 export type BatchPlanning = {
   /** Every active student in the selected batch. */
   students: PlacementBoardStudent[];
   counts: PlanningStatusCounts;
   areas: PlanningAreaGroup[];
+  /**
+   * Every student exactly once, grouped by normalized city. Largest first,
+   * City Missing last. The counts add back to counts.total.
+   */
+  cities: PlanningCityRow[];
   /** Non-empty city, no usable ACTIVE area. Includes Needs Area Review. */
   unmapped: PlanningExceptionGroup;
   /** Null or blank city. Kept separate from Unmapped on purpose. */
@@ -214,6 +243,89 @@ function cityCounts(
 }
 
 /**
+ * The whole batch by normalized city, every student exactly once.
+ *
+ * The label is the spelling staff used most often for that city, so eleven
+ * "Mississauga" and one "MISSISSAUGA" read as one row labelled Mississauga.
+ * Nothing is rewritten on any student.
+ */
+function batchCityRows(
+  entries: { student: PlacementBoardStudent; resolved: ResolvedCityArea }[],
+): PlanningCityRow[] {
+  const rows = new Map<string, PlanningCityRow & { spellings: string[] }>();
+  const missing: PlacementBoardStudent[] = [];
+
+  for (const { student, resolved } of entries) {
+    if (resolved.state === "missing") {
+      missing.push(student);
+      continue;
+    }
+
+    const existing = rows.get(resolved.normalized);
+    if (existing) {
+      existing.count += 1;
+      existing.students.push(student);
+      existing.spellings.push(resolved.label);
+      continue;
+    }
+
+    rows.set(resolved.normalized, {
+      key: resolved.normalized,
+      label: resolved.label,
+      count: 1,
+      state: resolved.state,
+      area: resolved.area,
+      students: [student],
+      spellings: [resolved.label],
+    });
+  }
+
+  const cities: PlanningCityRow[] = [...rows.values()]
+    .map(({ spellings, ...row }) => ({
+      ...row,
+      label: cityDisplayLabel(spellings) || row.label,
+    }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
+  if (missing.length > 0) {
+    cities.push({
+      key: MISSING_CITY_KEY,
+      label: MISSING_CITY_LABEL,
+      count: missing.length,
+      state: "missing",
+      area: null,
+      students: missing,
+    });
+  }
+
+  return cities;
+}
+
+/** The students of one batch city row, by normalized key. Empty when unknown. */
+export function studentsInCity(
+  planning: Pick<BatchPlanning, "cities">,
+  key: string,
+): PlacementBoardStudent[] {
+  return planning.cities.find((row) => row.key === key)?.students ?? [];
+}
+
+/**
+ * Whether Batch Planning may offer Find Placement for a student.
+ *
+ * Exactly the PLACEMENT-05A rule: Ready for Placement and no live placement
+ * record. Permission (canManagePlacements) is checked separately by the page;
+ * this is only the student half of the condition.
+ */
+export function canOfferFindPlacement(
+  student: Pick<PlacementBoardStudent, "placement_status" | "currentPlacement">,
+): boolean {
+  return (
+    student.placement_status === "ready_for_placement" &&
+    !student.currentPlacement
+  );
+}
+
+/**
  * Group one batch's students into planning areas.
  *
  * Only ACTIVE areas become cards, and only areas that actually hold a student
@@ -242,10 +354,12 @@ export function buildBatchPlanning(input: {
   const byArea = new Map<string, Entry[]>();
   const unmapped: Entry[] = [];
   const missing: Entry[] = [];
+  const everyone: Entry[] = [];
 
   for (const student of input.students) {
     const resolved = resolveCityArea(student.city, cityIndex);
     const entry = { student, resolved };
+    everyone.push(entry);
 
     if (resolved.state === "mapped") {
       const list = byArea.get(resolved.area.id) ?? [];
@@ -278,6 +392,7 @@ export function buildBatchPlanning(input: {
     students: input.students,
     counts: countStudents(input.students),
     areas,
+    cities: batchCityRows(everyone),
     unmapped: {
       students: unmapped.map((entry) => entry.student),
       counts: countStudents(unmapped.map((entry) => entry.student)),
@@ -304,8 +419,8 @@ export function planningObservation(group: PlanningAreaGroup): string | null {
 
   const students =
     ready === 1
-      ? "1 student is ready in this Area."
-      : `${ready} students are ready in this Area.`;
+      ? "1 student is ready for placement."
+      : `${ready} students are ready for placement.`;
 
   if (group.partners.total === 0) {
     return `${students} No placement partners are assigned to this Area yet.`;
@@ -313,10 +428,10 @@ export function planningObservation(group: PlanningAreaGroup): string | null {
 
   const available =
     group.partners.availableNow === 0
-      ? "No partner here is currently marked Available Now."
+      ? "No partner in this Area is currently marked Available Now."
       : group.partners.availableNow === 1
-        ? "1 partner is currently marked Available Now."
-        : `${group.partners.availableNow} partners are currently marked Available Now.`;
+        ? "1 partner in this Area is currently marked Available Now."
+        : `${group.partners.availableNow} partners in this Area are currently marked Available Now.`;
 
   if (group.partners.unknown === 0) return `${students} ${available}`;
 

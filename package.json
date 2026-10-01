@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "check:email": "tsx scripts/check-document-email-rendering.ts",
-    "check:programs": "tsx scripts/check-program-operations.ts"
+    "check:programs": "tsx scripts/check-program-operations.ts",
+    "check:planning": "tsx scripts/check-batch-planning.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
