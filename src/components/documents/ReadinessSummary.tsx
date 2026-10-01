@@ -24,6 +24,14 @@ function toneFor(readiness: DocumentReadiness): Tone {
   return "attention";
 }
 
+/**
+ * The same three-way reading of readiness the summary and the list count
+ * use, exported so the Batch Document Grid colours "9 / 13" identically.
+ */
+export function readinessTone(readiness: DocumentReadiness): Tone {
+  return toneFor(readiness);
+}
+
 /** "11 of 13 ready" with a plain progress bar. No chart library, no gradient. */
 export default function ReadinessSummary({
   readiness,

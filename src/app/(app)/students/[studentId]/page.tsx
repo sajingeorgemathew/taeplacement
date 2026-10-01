@@ -17,6 +17,7 @@ import {
   getStudentReadiness,
 } from "@/lib/documents/queries";
 import { studentFullName, studentInitials } from "@/lib/format";
+import { CLASS_SESSION_LABELS } from "@/lib/placement/constants";
 import {
   getCurrentPlacement,
   listStudentPlacements,
@@ -172,6 +173,9 @@ export default async function StudentPage(
               </p>
               <p className="mt-1 text-[17px] text-ink-muted">
                 {student.batch?.name ?? "No batch assigned"}
+                {student.class_session
+                  ? ` - ${CLASS_SESSION_LABELS[student.class_session]}`
+                  : ""}
               </p>
               <p className="mt-1 flex items-start gap-2 text-[16px] text-ink-muted">
                 <MapPin

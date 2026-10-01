@@ -1022,8 +1022,13 @@ check(
 );
 check(
   "this ticket adds no migration",
+  // PLACEMENT-07B shipped on top of 0010 and added nothing. Later tickets may
+  // add their own migrations (0011 is PLACEMENT-07B.1), so only the
+  // migrations up to and including 0010 are counted here.
   !fs.existsSync(path.join(process.cwd(), "supabase", "migrations", "0011_batch_planning_visibility.sql")) &&
-    fs.readdirSync(path.join(process.cwd(), "supabase", "migrations")).filter((n) => n.endsWith(".sql")).length === 10,
+    fs
+      .readdirSync(path.join(process.cwd(), "supabase", "migrations"))
+      .filter((n) => n.endsWith(".sql") && n < "0011").length === 10,
 );
 check(
   "both requirements surface under their own database names in the summary",

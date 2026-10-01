@@ -26,6 +26,13 @@ export type ToolbarValues = {
    * Read only by /students; the batch and returning pages ignore it.
    */
   operations: string;
+  /**
+   * The batch page's view: "grid" (the Document Grid, the default) or
+   * "cards" (the student cards). Carried through search and filter changes so
+   * a search on the cards view stays on the cards view. Read only by the
+   * batch page; every other page ignores it. PLACEMENT-07B.1.
+   */
+  view: string;
 };
 
 export const emptyToolbarValues: ToolbarValues = {
@@ -36,6 +43,7 @@ export const emptyToolbarValues: ToolbarValues = {
   document: "",
   returning: "",
   operations: "",
+  view: "",
 };
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
@@ -54,6 +62,7 @@ export function toolbarValuesFrom(params: RawSearchParams): ToolbarValues {
     document: single(params.document),
     returning: single(params.returning),
     operations: single(params.operations),
+    view: single(params.view),
   };
 }
 

@@ -20,6 +20,8 @@ const TONE_CLASSES: Record<Tone, string> = {
 };
 
 const SIZE_CLASSES = {
+  /** The Batch Document Grid only: a dense table cell, not a card. */
+  small: "px-2.5 py-1 text-[13px] whitespace-nowrap",
   medium: "px-4 py-2 text-[15px]",
   large: "px-5 py-2.5 text-[16px]",
 };

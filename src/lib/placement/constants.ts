@@ -213,6 +213,42 @@ export const PROGRAM_FULL_NAMES: Record<Program, string> = {
 /** New students and batches start as PSW, the program that existed first. */
 export const DEFAULT_PROGRAM: Program = "PSW";
 
+/**
+ * A student's class / session WITHIN a batch. PLACEMENT-07B.1.
+ *
+ * A batch is not purely Morning or purely Evening: the August batch holds
+ * both, and so does September. batches.schedule_label describes the batch as
+ * a whole and can never say which session one student attends, so this is a
+ * STUDENT level field, students.class_session, and nothing is ever derived
+ * from the batch label.
+ *
+ * Null means Not Set. Nobody is inferred into a session; staff choose it.
+ *
+ * These match the CHECK constraint in
+ * supabase/migrations/0011_student_class_session.sql.
+ */
+export const CLASS_SESSIONS = ["morning", "evening"] as const;
+export type ClassSession = (typeof CLASS_SESSIONS)[number];
+
+export const CLASS_SESSION_LABELS: Record<ClassSession, string> = {
+  morning: "Morning",
+  evening: "Evening",
+};
+
+/** The label for a null class_session. */
+export const CLASS_SESSION_NOT_SET_LABEL = "Not Set";
+
+export function isClassSession(value: unknown): value is ClassSession {
+  return (
+    typeof value === "string" && CLASS_SESSIONS.includes(value as ClassSession)
+  );
+}
+
+/** "Morning", "Evening", or "Not Set". */
+export function classSessionLabel(value: ClassSession | null): string {
+  return value ? CLASS_SESSION_LABELS[value] : CLASS_SESSION_NOT_SET_LABEL;
+}
+
 export function isProgram(value: unknown): value is Program {
   return (
     typeof value === "string" && PROGRAM_OPTIONS.includes(value as Program)

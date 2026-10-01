@@ -12,10 +12,14 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import {
+  ClassSessionChangeSchema,
   NoteFormSchema,
   StudentFormSchema,
   studentFormDataToObject,
 } from "./schema";
+
+/** Result of a quick action on one student from the Batch Document Grid. */
+export type StudentQuickActionResult = { error: string | null };
 
 /** Postgres unique violation, raised when a student number is already taken. */
 function isDuplicateStudentNumber(code: string | undefined): boolean {
@@ -163,5 +167,49 @@ export async function addStudentNoteAction(
   }
 
   revalidatePath(`/students/${parsed.data.student_id}`);
+  // The Batch Document Grid shows the latest general note per student.
+  revalidatePath("/students/batches/[batchId]", "page");
   return emptyFormState;
+}
+
+/**
+ * Set one student's class / session from the Batch Document Grid.
+ * PLACEMENT-07B.1.
+ *
+ * Writes students.class_session and NOTHING else: not the batch, not the
+ * placement status, not the documents, not the program, and no student note.
+ * Every active staff member may edit a student, which is the same rule the
+ * full student form and the 0001 update policy apply, so there is no narrower
+ * permission here. Null (Not Set) is a valid value and is stored as null.
+ */
+export async function setStudentClassSessionAction(input: {
+  studentId: string;
+  classSession: string | null;
+}): Promise<StudentQuickActionResult> {
+  await requireActiveStaff();
+
+  const parsed = ClassSessionChangeSchema.safeParse({
+    student_id: input.studentId,
+    class_session: input.classSession ?? "",
+  });
+  if (!parsed.success) {
+    return { error: "Choose Morning, Evening, or Not Set." };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("students")
+    .update({ class_session: parsed.data.class_session })
+    .eq("id", parsed.data.student_id)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !data) {
+    return { error: "The session could not be saved. Try again." };
+  }
+
+  revalidatePath("/students/batches/[batchId]", "page");
+  revalidatePath(`/students/${parsed.data.student_id}`);
+  revalidatePath("/students");
+  return { error: null };
 }
