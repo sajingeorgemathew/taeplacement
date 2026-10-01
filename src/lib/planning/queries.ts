@@ -20,6 +20,73 @@ import type { PlacementAreaCityRow } from "@/lib/supabase/database.types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import { cityDisplayLabel, normalizeCityName, tidyCityName } from "./city";
+import {
+  chunkIds,
+  type NeedChecklistRow,
+  type NeedRequirement,
+} from "./needs";
+
+/**
+ * The checklist of one batch, read in bulk for "What This Batch Needs".
+ *
+ * Two reads for the whole batch, never one per student: the active requirement
+ * definitions, and the checklist rows of the given students. The rows carry
+ * ONLY student_id, requirement_id, and status. The internal `note` and the
+ * student-facing `student_message` are not selected, so nothing downstream can
+ * show them by accident. Requirement descriptions are not selected either.
+ *
+ * This is a read. It creates no checklist row, changes no status, and never
+ * touches readiness or placement status.
+ */
+export type BatchChecklistRead = {
+  requirements: NeedRequirement[];
+  rows: NeedChecklistRow[];
+};
+
+export async function readBatchChecklist(
+  studentIds: readonly string[],
+): Promise<BatchChecklistRead> {
+  await requireActiveStaff();
+  const supabase = await createSupabaseServerClient();
+
+  const requirementsRead = supabase
+    .from("placement_document_requirements")
+    .select("id, name, short_name, is_required, is_active, sort_order")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+
+  const rowReads = chunkIds(studentIds).map((chunk) =>
+    supabase
+      .from("student_placement_documents")
+      .select("student_id, requirement_id, status")
+      .in("student_id", chunk),
+  );
+
+  const [requirementsResult, ...rowResults] = await Promise.all([
+    requirementsRead,
+    ...rowReads,
+  ]);
+
+  if (requirementsResult.error) throw new Error(requirementsResult.error.message);
+
+  const rows: NeedChecklistRow[] = [];
+  for (const result of rowResults) {
+    if (result.error) throw new Error(result.error.message);
+    for (const row of result.data ?? []) {
+      rows.push({
+        student_id: row.student_id,
+        requirement_id: row.requirement_id,
+        status: row.status,
+      });
+    }
+  }
+
+  return {
+    requirements: (requirementsResult.data ?? []) as NeedRequirement[],
+    rows,
+  };
+}
 
 /** Every city to area mapping, readable label first. */
 export async function listCityAreaMappings(): Promise<PlacementAreaCityRow[]> {

@@ -1,7 +1,7 @@
 import { ChevronRight, CircleAlert } from "lucide-react";
 import Link from "next/link";
 
-import { studentCountLabel } from "@/lib/format";
+import { partnerCountLabel, studentCountLabel } from "@/lib/format";
 import { areaColorStyle } from "@/lib/partners/area-colors";
 import { PLACEMENT_STATUS_LABELS } from "@/lib/placement/constants";
 import { planningObservation, type PlanningAreaGroup } from "@/lib/planning/batch";
@@ -81,7 +81,7 @@ export default function AreaCard({
           </span>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
           {PLANNING_BREAKDOWN_STATUSES.map((status) => (
             <Figure
               key={status}
@@ -90,14 +90,22 @@ export default function AreaCard({
               emphasis={status === "ready_for_placement"}
             />
           ))}
-          {extras.map((status) => (
-            <Figure
-              key={status}
-              label={PLANNING_STATUS_LABELS[status]}
-              value={group.counts.byStatus[status]}
-            />
-          ))}
         </div>
+        {extras.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-3">
+            {extras.map((status) => (
+              <span
+                key={status}
+                className="inline-flex items-center gap-2 rounded-full border border-attention-line bg-attention-soft px-4 py-2 text-[15px] font-medium text-attention-ink"
+              >
+                {PLANNING_STATUS_LABELS[status]}
+                <span className="font-semibold">
+                  {group.counts.byStatus[status]}
+                </span>
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         <div className="mt-6">
           <h4 className={`text-[15px] font-semibold ${color.muted}`}>Cities</h4>
@@ -120,7 +128,10 @@ export default function AreaCard({
               Placement Partners in this Area
             </h4>
             <span className="text-[15px] text-ink-muted">
-              {group.partners.total} active
+              {partnerCountLabel(group.partners.total)}
+              {group.partners.total > 0
+                ? `, ${group.partners.availableNow} available now`
+                : ""}
             </span>
           </div>
 

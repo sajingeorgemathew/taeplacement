@@ -1,19 +1,32 @@
 import Link from "next/link";
 
-import type { Tone } from "@/lib/placement/constants";
+import { formatDate, studentCountLabel } from "@/lib/format";
+import {
+  PLACEMENT_STATUS_LABELS,
+  PLACEMENT_STATUS_TONES,
+  type PlacementStatus,
+  type Tone,
+} from "@/lib/placement/constants";
+import { isOperationalBatch } from "@/lib/placement/operations";
 import type { BatchPlanning } from "@/lib/planning/batch";
+import {
+  PLANNING_BREAKDOWN_STATUSES,
+  PLANNING_EXTRA_STATUSES,
+  PLANNING_STATUS_LABELS,
+} from "@/lib/planning/constants";
+import type { BatchRow } from "@/lib/supabase/database.types";
 
 /**
- * The batch summary strip.
+ * The batch header and executive summary.
  *
- * Every number is counted from the live student records for this batch. There
- * is no summary table and no stored aggregate anywhere: a status change or a
- * newly mapped city shows up on the next load.
+ * Batch name, program, and total first, then the placement lifecycle as five
+ * large counts and the two exceptions (Needs Review, On Hold) on a quieter
+ * line. Every count is a plain tally of students.placement_status for the
+ * active students of this batch: nothing is re-derived from documents or
+ * placement records, and there is no summary table anywhere.
  *
- * Unmapped City and City Missing sit in this strip beside the placement
- * statuses on purpose. They are not errors to tuck away, they are the two
- * planning questions a batch most often fails on, and a planner should see them
- * in the same glance as Ready and On Hold.
+ * Every count is a link to the students in this batch with that status, so a
+ * number is never a dead end.
  */
 
 const TONE_CLASSES: Record<Tone, string> = {
@@ -24,89 +37,120 @@ const TONE_CLASSES: Record<Tone, string> = {
   neutral: "border-line bg-surface text-ink",
 };
 
-function Tile({
-  label,
+function StageTile({
+  status,
   value,
-  tone,
   href,
 }: {
-  label: string;
+  status: PlacementStatus;
   value: number;
-  tone: Tone;
-  href?: string;
+  href: string;
 }) {
-  const body = (
-    <>
-      <p className="text-[34px] font-semibold leading-none">{value}</p>
-      <p className="mt-2 text-[15px] font-medium leading-snug">{label}</p>
-    </>
+  const tone: Tone = value > 0 ? PLACEMENT_STATUS_TONES[status] : "neutral";
+  return (
+    <Link
+      href={href}
+      className={`block rounded-2xl border p-5 transition-shadow hover:shadow-sm ${TONE_CLASSES[tone]}`}
+    >
+      <p className="text-[36px] font-semibold leading-none">{value}</p>
+      <p className="mt-2 text-[15px] font-medium leading-snug">
+        {PLANNING_STATUS_LABELS[status]}
+      </p>
+      <span className="sr-only">
+        {" "}
+        - open {studentCountLabel(value)} {PLACEMENT_STATUS_LABELS[status]}
+      </span>
+    </Link>
   );
+}
 
-  const classes = `rounded-2xl border p-5 ${TONE_CLASSES[tone]}`;
-
-  if (href) {
-    return (
-      <Link href={href} className={`${classes} block transition-shadow hover:shadow-sm`}>
-        {body}
-      </Link>
-    );
-  }
-  return <div className={classes}>{body}</div>;
+function ExceptionTile({
+  status,
+  value,
+  href,
+}: {
+  status: PlacementStatus;
+  value: number;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`inline-flex items-center gap-3 rounded-2xl border px-5 py-3 text-[16px] font-medium transition-shadow hover:shadow-sm ${
+        value > 0
+          ? TONE_CLASSES[PLACEMENT_STATUS_TONES[status]]
+          : "border-line bg-surface text-ink-muted"
+      }`}
+    >
+      {PLANNING_STATUS_LABELS[status]}
+      <span className="text-[22px] font-semibold leading-none">{value}</span>
+    </Link>
+  );
 }
 
 export default function BatchSummary({
+  batch,
   planning,
-  unmappedHref,
-  missingHref,
+  statusHrefs,
 }: {
+  batch: BatchRow;
   planning: BatchPlanning;
-  unmappedHref: string;
-  missingHref: string;
+  /** Where each count leads: the students in this batch with that status. */
+  statusHrefs: Record<PlacementStatus, string>;
 }) {
-  const { byStatus } = planning.counts;
-  const unmapped = planning.unmapped.counts.total;
-  const missing = planning.missing.counts.total;
+  const { byStatus, total } = planning.counts;
+  const startDate = formatDate(batch.start_date);
+  const context = [
+    batch.program,
+    startDate ? `starts ${startDate}` : null,
+    batch.status === "archived"
+      ? "archived batch"
+      : isOperationalBatch(batch)
+        ? null
+        : "not tracked in Placement Operations",
+  ].filter(Boolean);
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <Tile label="Total Students" value={planning.counts.total} tone="neutral" />
-      <Tile
-        label="Documents Pending"
-        value={byStatus.documents_pending}
-        tone={byStatus.documents_pending > 0 ? "attention" : "neutral"}
-      />
-      <Tile
-        label="Ready for Placement"
-        value={byStatus.ready_for_placement}
-        tone={byStatus.ready_for_placement > 0 ? "ready" : "neutral"}
-      />
-      <Tile
-        label="Awaiting Start"
-        value={byStatus.placement_assigned}
-        tone={byStatus.placement_assigned > 0 ? "info" : "neutral"}
-      />
-      <Tile
-        label="On Placement"
-        value={byStatus.placement_started}
-        tone={byStatus.placement_started > 0 ? "info" : "neutral"}
-      />
-      <Tile
-        label="On Hold"
-        value={byStatus.on_hold}
-        tone={byStatus.on_hold > 0 ? "attention" : "neutral"}
-      />
-      <Tile
-        label="Unmapped City"
-        value={unmapped}
-        tone={unmapped > 0 ? "attention" : "neutral"}
-        href={unmapped > 0 ? unmappedHref : undefined}
-      />
-      <Tile
-        label="City Missing"
-        value={missing}
-        tone={missing > 0 ? "attention" : "neutral"}
-        href={missing > 0 ? missingHref : undefined}
-      />
+    <div className="rounded-3xl border border-line bg-surface p-7 sm:p-8">
+      <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+        <div className="min-w-0">
+          <p className="text-[15px] font-semibold uppercase tracking-wide text-ink-muted">
+            Selected batch
+          </p>
+          <h2 className="mt-1 text-[32px] font-semibold leading-tight tracking-tight text-ink sm:text-[36px]">
+            {batch.name}
+          </h2>
+          <p className="mt-2 text-[17px] text-ink-muted">{context.join(" - ")}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[48px] font-semibold leading-none text-ink">{total}</p>
+          <p className="mt-1.5 text-[16px] font-medium text-ink-muted">
+            {total === 1 ? "student" : "students"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-7 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+        {PLANNING_BREAKDOWN_STATUSES.map((status) => (
+          <StageTile
+            key={status}
+            status={status}
+            value={byStatus[status]}
+            href={statusHrefs[status]}
+          />
+        ))}
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        {PLANNING_EXTRA_STATUSES.map((status) => (
+          <ExceptionTile
+            key={status}
+            status={status}
+            value={byStatus[status]}
+            href={statusHrefs[status]}
+          />
+        ))}
+      </div>
     </div>
   );
 }

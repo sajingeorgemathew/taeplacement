@@ -198,28 +198,94 @@ batch means nothing in this one.
 
 ## Batch summary
 
-Eight live counts, all read from the active students in the selected batch. No
-summary table, no cached rollup.
+The header names the batch, its program, its start date, and the total number
+of active students. Under it, seven live counts, all read from the active
+students in the selected batch. No summary table, no cached rollup.
 
 | Count | Source |
 | --- | --- |
-| Total Students | active students in the batch |
 | Documents Pending | `placement_status = documents_pending` |
-| Ready for Placement | `placement_status = ready_for_placement` |
-| Awaiting Start | `placement_status = placement_assigned` |
+| Ready | `placement_status = ready_for_placement` |
+| Assigned | `placement_status = placement_assigned` |
 | On Placement | `placement_status = placement_started` |
+| Completed | `placement_status = placement_completed` |
+| Needs Review | `placement_status = needs_review` |
 | On Hold | `placement_status = on_hold` |
-| Unmapped City | non-empty city with no usable **active** Area |
-| City Missing | `city` is null or blank |
 
-Inactive students are never counted. `needs_review` and `placement_completed`
-are real statuses too; they are not part of the five a planner scans for, so
-they only appear on an Area card when the batch actually contains one. They are
-always inside Total.
+The first five are the lifecycle, in order, as large tiles; the same five
+stages the program dashboard shows. Needs Review and On Hold are exceptions
+to the flow rather than steps in it, so they sit on a quieter second line.
+The seven always add up to the total. Inactive students are never counted.
 
-Unmapped City and City Missing sit in the same strip as the placement statuses
-on purpose. They are the two things a batch most often fails on, and they should
-be seen in the same glance as Ready and On Hold.
+Every count is a link to the students in this batch with that status
+(`?batch=<id>&status=<placement_status>`), so a number is never a dead end.
+
+Unmapped City and City Missing are no longer tiles in this strip. They appear
+as rows in Where Students Live, directly under the summary, and as the
+existing cards at the foot of the page when non-zero.
+
+## Where Students Live
+
+One row per normalized city across the whole batch, largest first, with the
+student count and the Placement Area the city maps to:
+
+```
+Mississauga     5     Peel
+Brampton        3     Peel
+Etobicoke       1     Unmapped
+Oshawa          1     Needs Area Review - mapped to Durham, which is archived
+City Missing    1     Needs attention
+```
+
+The grouping is `normalizeCityName`, the row label is the spelling staff used
+most often, and no student's city is rewritten. A mapped city shows its
+active Area in the Area's colour. An unmapped city says Unmapped and no Area
+is guessed. A city mapped to an archived Area says Needs Area Review and names
+the Area. City Missing is its own row, always last. The counts add back to
+the batch total; every student is in exactly one row.
+
+Each city row opens the students from that city (`?city=<normalized>`), with
+the same status chips an Area drill-down has. The City Missing row opens the
+existing `exception=missing` view.
+
+## What This Batch Needs
+
+Counted from each student's actual `student_placement_documents` rows,
+against the active requirement definitions, in one bulk read for the batch.
+Two sides, kept apart because they answer "who has to act?" differently:
+
+| Side | Checklist status | Meaning |
+| --- | --- | --- |
+| Student Action Needed | `requested`, `needs_update` | the student has something to send |
+| Staff Review Needed | `not_reviewed` | nobody on staff has looked yet |
+
+`received` is complete and `not_applicable` is exempt; neither appears.
+
+Student Action Needed is grouped by requirement, largest first, each row
+naming the requirement as the database holds it and the number of distinct
+students:
+
+```
+Vulnerable Sector Police Check Certificate    5 students
+Standard First Aid & CPR Certificate - Level C 3 students
+```
+
+Staff Review Needed leads with a headline, "4 students have checklist items
+not yet reviewed", and lists requirements under it. Not Reviewed is a staff
+state. It is never described as a missing student document: the student may
+already have sent it.
+
+Only active requirements count, the same rule the reminder email and the
+readiness view apply. An optional requirement is listed when a student needs
+something on it and is labelled Optional; it never blocks readiness.
+
+The summary is names and counts. The read selects `student_id,
+requirement_id, status` and nothing else, so a checklist row's internal note
+and its student-facing message are never read, never passed on, and never
+shown. Requirement descriptions are not read either.
+
+Each requirement row and each headline count opens the matching students
+(`?need=action|review&requirement=<id>`, the requirement optional).
 
 ## Area cards
 
@@ -233,11 +299,12 @@ array position, so renaming, reordering, or adding an area repaints nothing.
 A card shows:
 
 - Area name and student count
-- the five status figures: Ready, Docs Pending, Awaiting Start, On Placement,
-  On Hold, plus Needs Review and Completed when the batch has one
+- the five lifecycle figures: Documents Pending, Ready, Assigned, On
+  Placement, Completed, plus Needs Review and On Hold as pills when the Area
+  has one
 - a city breakdown, for example `Mississauga 4` `Brampton 3`
-- a partner overview: total active partners, Available Now, Upcoming, Unknown,
-  Not Available
+- a partner overview: "N partners, M available now", then Available Now,
+  Upcoming, Unknown, Not Available
 - a follow-up indicator when any partner in the Area is due
 - **Open Area**
 
@@ -249,8 +316,8 @@ LTC may accept six and another may accept one.
 
 So the card's observation line reads:
 
-> 5 students are ready in this Area. 2 partners are currently marked Available
-> Now. 3 partners have not been checked yet.
+> 5 students are ready for placement. 2 partners in this Area are currently
+> marked Available Now. 3 partners have not been checked yet.
 
 and it never reads "3 students cannot be placed" or "3 students need partners".
 No count is ever subtracted from another. It is an operational observation, not
@@ -302,20 +369,25 @@ is empty, and which partners sit there anyway, is a real planning answer.
 ### Students in this Area
 
 Active students from the selected batch whose normalized city maps to this Area,
-rendered with the same comfortable row the Placement List uses, so the layout is
-already familiar. Each row shows:
+rendered as one compact planning row (`PlanningStudentList`), the same row
+every planning drill-down uses. Each row shows:
 
 - student name and student number
-- batch and program
-- city
+- program and city
+- their current partner when Assigned or On Placement
+- a document attention line counted from the checklist: "2 student actions",
+  "3 items not reviewed", or both; never a note, a document name, or a date
+- placement status
 - document readiness `X of Y ready`
-- placement status and document status
-- their current partner and planned start where one exists
-- **Open Student**
+- **Open**, and **Find Placement** for a ready student under the existing rule
 
-Filters: All, Ready, Documents Pending, Awaiting Start, On Placement, On Hold.
-Each chip carries its own count, and a chip with zero stays visible so "no
-students on hold here" is distinguishable from "that filter does not exist".
+This is a planning view. It is not the Students-page progress card
+(PLACEMENT-07C).
+
+Filters: All, Documents Pending, Ready, Assigned, On Placement, Completed,
+Needs Review, On Hold. Each chip carries its own count, and a chip with zero
+stays visible so "no students on hold here" is distinguishable from "that
+filter does not exist".
 
 Document readiness comes from the existing `student_document_readiness` view
 through the existing queries. The 13-document rules are never re-implemented.
@@ -364,12 +436,14 @@ page reached from the board and the student record. Staff without
 | `supabase/migrations/0007_batch_placement_planning.sql` | the table, the guard trigger, RLS |
 | `src/lib/planning/city.ts` | normalization and the readable label |
 | `src/lib/planning/mapping.ts` | city to area resolution, the four states |
-| `src/lib/planning/queries.ts` | mapping rows, distinct roster cities |
-| `src/lib/planning/batch.ts` | grouping a batch, counts, the observation |
+| `src/lib/planning/queries.ts` | mapping rows, distinct roster cities, the bulk checklist read |
+| `src/lib/planning/batch.ts` | grouping a batch, counts, city rows, the observation |
+| `src/lib/planning/needs.ts` | Student Action Needed / Staff Review Needed, pure |
 | `src/lib/planning/admin.ts` | the Admin mapping rows |
 | `src/lib/planning/actions.ts` | assign / change / unmap, admin only |
-| `src/lib/planning/filters.ts` | the URL state and the default batch |
+| `src/lib/planning/filters.ts` | the URL state, the drill-down resolver, the default batch |
 | `src/lib/planning/constants.ts` | short card labels, filter lists |
+| `scripts/check-batch-planning.ts` | `npm run check:planning`, offline |
 | `src/app/(app)/placement/planning/page.tsx` | the view |
 | `src/app/(app)/admin/city-area-mapping/page.tsx` | Admin mapping |
 | `src/components/planning/` | the cards, lists, chips, and selector |
